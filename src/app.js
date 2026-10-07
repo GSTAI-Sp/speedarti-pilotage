@@ -1103,9 +1103,9 @@ function renderProjects() {
 
 function renderProjectDetail(id) {
   const p = project(id);
-  if (!p) { selectedProjectId = null; return renderProjects(); }
+  if (!p || !V21.projectInScope(state, p)) { selectedProjectId = null; return renderProjects(); }
 
-  const tasks = state.tasks.filter(t => t.projectId === id);
+  const tasks = state.tasks.filter(t => t.projectId === id && V21.taskInScope(state, t));
   const docs = allDocumentRefs().filter(d => d.projectId === id);
   const activities = state.activity.filter(a => a.projectId === id).slice(0,20);
   const children = projectChildren(id).filter(child => !child.archived);
@@ -1166,7 +1166,7 @@ function renderProjectDetail(id) {
       : `
       <section class="section project-leaf-progress-note">
         <span>◉</span>
-        <div><strong>Projet sans sous-projet</strong><small>Sa progression reste manuelle. Dès qu'il contient un sous-projet, la barre devient automatique à partir des tâches de l'arborescence.</small></div>
+        <div><strong>Progression automatique</strong><small>La barre est toujours calculée à partir des tâches du projet. Une tâche simple vaut 0 % tant qu’elle n’est pas terminée puis 100 % une fois terminée.</small></div>
       </section>`}
 
     ${pending ? `
@@ -1247,11 +1247,11 @@ function renderProjectDetail(id) {
     ${p.archived ? '<div class="archive-banner"><strong>Projet archivé</strong><span>Il reste consultable, mais n’apparaît plus dans le pilotage actif.</span></div>' : ''}
 
     <div class="project-detail-head">
-      <div>${statusBadge(p.status)} ${priorityBadge(p.priority)} <span class="owner-pill">${esc(teamName(p.owner))}</span>${hasChildren ? '<span class="project-auto-progress-badge">Progression auto</span>' : ''}</div>
+      <div>${statusBadge(p.status)} ${priorityBadge(p.priority)} <span class="owner-pill">${esc(teamName(p.owner))}</span><span class="project-auto-progress-badge">Progression auto</span></div>
       <strong>${progress} %</strong>
     </div>
     <div class="progress large"><i style="width:${progress}%"></i></div>
-    ${hasChildren ? `<div class="project-progress-caption">${subtree.done}/${subtree.total} tâches terminées dans toute l'arborescence</div>` : ''}
+    <div class="project-progress-caption">${subtree.done}/${subtree.total} tâches terminées dans le projet et son arborescence</div>
 
     ${quickAdd}
 
