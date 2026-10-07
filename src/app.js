@@ -607,10 +607,7 @@ function projectTreeTaskSummary(projectId) {
 }
 
 function projectEffectiveProgress(p) {
-  if (!p) return 0;
-  if (!projectHasChildren(p.id)) return Math.max(0, Math.min(100, Number(p.progress || 0)));
-  const summary = projectTreeTaskSummary(p.id);
-  return summary.total ? Math.round((summary.done * 100) / summary.total) : 0;
+  return V21.projectProgress(state, p);
 }
 
 function projectDepthLocal(projectId) {
@@ -655,11 +652,9 @@ function projectMatchesFilter(p) {
 }
 
 function visibleProjectTreeSet() {
-  const matched = state.projects.filter(projectMatchesFilter);
+  const matched = state.projects.filter(p => V21.projectInScope(state, p) && projectMatchesFilter(p));
   const visible = new Set(matched.map(p => p.id));
-  if (!['all','archived'].includes(projectFilter)) {
-    matched.forEach(p => projectAncestorChain(p.id).forEach(parent => visible.add(parent.id)));
-  }
+  matched.forEach(p => projectAncestorChain(p.id).forEach(parent => visible.add(parent.id)));
   return visible;
 }
 
@@ -727,10 +722,25 @@ async function moveProjectInTree(projectId, { parentId = null, beforeId = null }
   }
 }
 
-function pendingApprovals() {
+function scopedPendingValidations() {
   ensureRuntimeState();
+  const selected = selectedProfileIds();
+  return state.changeRequests.filter(r => {
+    if (r.status !== 'pending' || project(r.projectId)?.archived) return false;
+    const requester = memberIdFromIdentity(r.requestedByMemberId || r.requestedBy);
+    if (requester && selected.has(requester)) return true;
+    const p = project(r.projectId);
+    return p ? V21.projectInScope(state, p) : false;
+  });
+}
+
+function pendingValidationCount() {
+  return scopedPendingValidations().length;
+}
+
+function pendingApprovals() {
   if (!isAdmin()) return [];
-  return state.changeRequests.filter(r => r.status === 'pending' && !project(r.projectId)?.archived);
+  return scopedPendingValidations();
 }
 
 
@@ -855,7 +865,7 @@ function teamDailySummary(reportDate) {
     received,
     expected: scopeMembers.length,
     sources,
-    expectedSources: activeAiAgents().length,
+    expectedSources: activeAiAgents().filter(agent => scopeIds.has(agent.personId)).length,
     validated,
     achievements: achievements.length,
     blockers: blockers.length,
