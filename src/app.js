@@ -1309,7 +1309,7 @@ function renderGoogleCalendarPanel() {
     <div class="calendar-source-list">
       ${sources.length ? sources.map(source => `<div class="calendar-source-row">
         <label><input type="checkbox" data-google-calendar-selected="${esc(source.externalCalendarId)}" ${source.selected ? 'checked' : ''} /> <strong>${esc(source.name)}</strong>${source.primary ? '<small>Principal</small>' : ''}</label>
-        <label class="calendar-share"><input type="checkbox" data-google-calendar-shared="${esc(source.externalCalendarId)}" ${source.sharedWithTeam ? 'checked' : ''} /> Visible équipe</label>
+        <label class="calendar-share"><input type="checkbox" ${source.selected ? 'checked' : ''} disabled /> Visible équipe automatiquement</label>
       </div>`).join('') : '<div class="empty-line">Clique sur “Actualiser les agendas” pour récupérer la liste.</div>'}
     </div>
     ${sources.length ? '<button class="text-button" id="googleCalendarSaveSelection">Enregistrer la sélection</button>' : ''}` : `<div class="google-integration-body"><p>Chaque membre connecte son propre compte. Il choisit les agendas à synchroniser et ceux qu’il souhaite rendre visibles à l’équipe.</p><button class="primary-btn" id="googleConnectCalendar" ${googleBusy ? 'disabled' : ''}>Connecter Google</button></div>`}
@@ -1336,7 +1336,7 @@ function renderCalendar() {
   });
 
   const title = calendarView === 'today' ? longDateLabel(today) : calendarView === 'week' ? weekLabel(ref) : monthLabel(ref);
-  return pageHeader('Agenda', 'Rendez-vous Google, tâches prévues et échéances au même endroit') + `
+  return pageHeader('Agenda', `Rendez-vous, tâches et échéances · ${V21.getProfileScopeLabel(state)}`) + `
     ${renderGoogleCalendarPanel()}
     <div class="tabs">
       <button class="${calendarView === 'today' ? 'active' : ''}" data-calendar-view="today">Aujourd’hui</button>
@@ -1344,7 +1344,7 @@ function renderCalendar() {
       <button class="${calendarView === 'month' ? 'active' : ''}" data-calendar-view="month">Mois</button>
     </div>
     <section class="section"><div class="date-heading">${title}</div><div class="agenda-list">${visible.map(e => {
-      const inner = `<time>${calendarView === 'today' ? formatTime(e.at) : `${dateKey(e.at).slice(8,10)}/${dateKey(e.at).slice(5,7)} ${formatTime(e.at)}`}</time><div><strong>${esc(e.title)}</strong><small>${esc(e.label)}</small></div>`;
+      const inner = `<time>${calendarView === 'today' ? formatTime(e.at) : `${dateKey(e.at).slice(8,10)}/${dateKey(e.at).slice(5,7)} ${formatTime(e.at)}`}</time><div><strong>${esc(e.title)}</strong><small>${esc(teamName(e.ownerId))} · ${esc(e.label)}</small></div>`;
       if (e.taskId && e.source !== 'google') return `<button class="agenda-row source-speedarti ${e.label === 'Échéance' ? 'source-deadline' : ''}" data-edit-task="${e.taskId}">${inner}</button>`;
       const canLink = e.source === 'google' && (e.ownerId === state.currentUser.id || isAdmin());
       return `<div class="agenda-row source-google">${inner}${canLink ? `<button class="text-button agenda-link-btn" data-calendar-link="${e.id}">${e.projectId || e.taskId ? 'Modifier le lien' : 'Associer'}</button>` : ''}${e.meetUrl ? `<button class="text-button meet-join-btn" data-open-url="${esc(e.meetUrl)}">📹 Rejoindre</button>` : ''}${e.url ? `<button class="text-button" data-open-url="${esc(e.url)}">Agenda</button>` : ''}</div>`;
@@ -1364,7 +1364,7 @@ function renderDocuments() {
   const docRow = d => `<div class="doc-row"><span class="doc-icon ${d.type === 'Tableur' ? 'doc-sheet' : 'doc-document'}">▤</span><div><strong>${esc(d.name)}</strong><small>${esc(d.type || 'Document')} · ${esc(d.source)}${d.relativePath ? ` · ${esc(d.relativePath)}` : ''}</small></div>${d.driveItemId && (d.ownerId === state.currentUser.id || isAdmin()) ? `<select class="drive-project-select" data-drive-project="${d.driveItemId}" title="Rattacher à un projet"><option value="">Sans projet</option>${state.projects.map(p => `<option value="${p.id}" ${d.projectId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>` : ''}${d.url ? `<button class="text-button" data-open-doc="${d.id}">Ouvrir →</button>` : '<span class="demo-label">Référence</span>'}</div>`;
   return pageHeader('Documents', 'Google Drive reste la source : Pilotage synchronise uniquement le dossier choisi', '<button class="primary-btn" data-action="link-document">+ Lier une référence</button>') + `
     ${renderGoogleDrivePanel()}
-    <div class="toolbar"><input id="documentSearch" class="search-field" value="${esc(documentSearch)}" placeholder="Rechercher un fichier…" /><select id="documentProjectFilter"><option value="all">Tous les projets</option>${state.projects.map(p => `<option value="${p.id}" ${documentProjectFilter === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="toolbar"><input id="documentSearch" class="search-field" value="${esc(documentSearch)}" placeholder="Rechercher un fichier…" /><select id="documentProjectFilter"><option value="all">Tous les projets</option>${state.projects.filter(p => V21.projectInScope(state,p)).map(p => `<option value="${p.id}" ${documentProjectFilter === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
     <div class="documents-list">
       ${grouped.map(({project:p,docs:list}) => `<section class="section doc-group"><h2>${esc(p.name)}</h2>${list.map(docRow).join('')}</section>`).join('')}
       ${orphan.length ? `<section class="section doc-group"><h2>Sans projet</h2>${orphan.map(docRow).join('')}</section>` : ''}
