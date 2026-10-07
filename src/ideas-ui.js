@@ -132,6 +132,8 @@
 
   function filteredItems() {
     let rows = [...ui.items];
+    const profileIds = Array.isArray(ctx?.profileIds) ? new Set(ctx.profileIds.filter(Boolean)) : null;
+    if (profileIds?.size) rows = rows.filter(item => profileIds.has(item.author_client_key));
 
     if (ui.view === 'top') {
       rows.sort((a,b) =>
