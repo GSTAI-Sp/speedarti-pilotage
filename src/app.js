@@ -2036,11 +2036,11 @@ function renderProjectModal() {
       <label class="form-field"><span>Priorité</span><select id="projectPriority">${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}" ${value === priority ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <label class="form-field"><span>État</span><select id="projectStatus">${Object.entries(statusLabels).filter(([value]) => existing || value !== 'completed').map(([value,label]) => `<option value="${value}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
 
-      <label class="form-field form-field-full range-field ${hasChildren ? 'range-field-automatic' : ''}">
-        <span>Progression <output id="projectProgressValue">${progress} %</output></span>
-        <input id="projectProgress" type="range" min="0" max="100" step="5" value="${progress}" ${hasChildren ? 'disabled' : ''} />
-        ${hasChildren ? '<small>Calcul automatique : tâches terminées / tâches totales de toute l’arborescence.</small>' : '<small>Cette progression reste manuelle tant que le projet ne contient aucun sous-projet.</small>'}
-      </label>
+      <div class="form-field form-field-full range-field range-field-automatic">
+        <span>Progression <output>${progress} %</output></span>
+        <div class="progress large"><i style="width:${progress}%"></i></div>
+        <small>Calcul automatique à partir des tâches du projet et de ses sous-projets. La valeur n’est jamais saisie manuellement.</small>
+      </div>
 
       <label class="form-field form-field-full"><span>Blocage actuel</span><input id="projectBlocker" type="text" value="${esc(existing?.blocker || '')}" placeholder="Laisser vide s’il n’y a aucun blocage" maxlength="180" /></label>
       <label class="form-field form-field-full"><span>Prochaine action</span><input id="projectNextAction" type="text" value="${esc(existing?.nextAction || '')}" placeholder="Ex. Définir le cahier fonctionnel" maxlength="160" /></label>
@@ -2554,9 +2554,7 @@ function createProjectFromForm() {
     if (!existing) return;
 
     const hasChildren = projectHasChildren(existing.id);
-    const progress = hasChildren
-      ? Number(existing.progress || 0)
-      : Number(document.querySelector('#projectProgress')?.value || 0);
+    const progress = projectEffectiveProgress(existing);
     const oldOwner = existing.owner;
     const oldMembers = projectMemberIds(existing);
     const members = selectedProjectMembers(owner, oldMembers);
@@ -2570,7 +2568,7 @@ function createProjectFromForm() {
       priority,
       status:savedStatus,
       progress,
-      manualProgress: hasChildren ? Number(existing.manualProgress ?? existing.progress ?? 0) : progress,
+      manualProgress: progress,
       blocker,
       nextAction,
       members,
@@ -2601,10 +2599,6 @@ function createProjectFromForm() {
       trace(TAGS.PROJECT_MULTISELECT, 'Participants projet modifiés', { projectId:existing.id, members });
     }
 
-    if (!hasChildren && oldProgress !== progress) {
-      addActivity({ projectId: existing.id, text: `Progression : ${oldProgress} % → ${progress} %`, internalTag: TAGS.PROJECT_PROGRESS });
-    }
-
     persist(TAGS.PROJECT_EDIT, 'Projet modifié', {
       projectId: existing.id,
       owner,
@@ -2612,7 +2606,7 @@ function createProjectFromForm() {
       priority,
       status:existing.status,
       progress:existing.progress,
-      automaticProgress:hasChildren,
+      automaticProgress:true,
       blocker
     });
   } else {
@@ -2624,7 +2618,7 @@ function createProjectFromForm() {
       return;
     }
 
-    const progress = Number(document.querySelector('#projectProgress')?.value || 0);
+    const progress = 0;
     const id = crypto.randomUUID();
     const members = selectedProjectMembers(
       owner,
