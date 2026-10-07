@@ -1324,9 +1324,9 @@ function renderCalendar() {
   const endWeek = endOfWeek(ref);
   const events = [
     ...state.calendarEvents.map(e => ({...e, source:'google', label:e.calendarName || 'Google Calendar'})),
-    ...state.tasks.filter(t => t.scheduledFor).map(t => ({ id:`scheduled-${t.id}`, taskId:t.id, at:dateAtHourIso(t.scheduledFor, 9), title:t.title, source:'SpeedArti', label:'Tâche planifiée' })),
-    ...state.tasks.filter(t => t.dueAt).map(t => ({ id:`due-${t.id}`, taskId:t.id, at:t.dueAt, title:t.title, source:'SpeedArti', label:'Échéance' }))
-  ].filter(e => e.at).sort((a,b) => new Date(a.at)-new Date(b.at));
+    ...state.tasks.filter(t => t.scheduledFor).map(t => ({ id:`scheduled-${t.id}`, taskId:t.id, ownerId:t.assignedTo, projectId:t.projectId, at:dateAtHourIso(t.scheduledFor, 9), title:t.title, source:'SpeedArti', label:'Tâche planifiée' })),
+    ...state.tasks.filter(t => t.dueAt).map(t => ({ id:`due-${t.id}`, taskId:t.id, ownerId:t.assignedTo, projectId:t.projectId, at:t.dueAt, title:t.title, source:'SpeedArti', label:'Échéance' }))
+  ].filter(e => e.at && V21.eventInScope(state, e)).sort((a,b) => new Date(a.at)-new Date(b.at));
 
   const visible = events.filter(e => {
     const d = new Date(e.at);
@@ -1354,6 +1354,7 @@ function renderCalendar() {
 function renderDocuments() {
   const q = documentSearch.trim().toLowerCase();
   const docs = allDocumentRefs().filter(d => {
+    if (!V21.documentInScope(state, d)) return false;
     if (documentProjectFilter !== 'all' && d.projectId !== documentProjectFilter) return false;
     if (q && !`${d.name} ${d.type || ''} ${d.relativePath || ''} ${project(d.projectId)?.name || ''}`.toLowerCase().includes(q)) return false;
     return true;
@@ -1418,6 +1419,7 @@ function renderActivity() {
   ];
   const q = activitySearch.trim().toLowerCase();
   const visible = state.activity.filter(a => {
+    if (!V21.activityInScope(state, a)) return false;
     const actor = String(a.actor || '').toLowerCase();
     if (activityFilter === 'thibault' && !actor.includes('thibault')) return false;
     if (activityFilter === 'anne' && !actor.includes('anne-sophie')) return false;
@@ -1906,7 +1908,7 @@ function renderQuickActionModal() {
 }
 
 function renderNotifications() {
-  const myNotifications = state.notifications.filter(isMyNotification);
+  const myNotifications = state.notifications.filter(n => V21.notificationInScope(state, n));
   const active = myNotifications.filter(n => !n.resolved).filter(n => {
     if (notificationFilter === 'all') return true;
     if (notificationFilter === 'action') return n.severity === 'action';
@@ -1920,6 +1922,7 @@ function renderNotifications() {
     if (n.actionType === 'edit_task') return `<button class="text-button" data-edit-task="${n.taskId}" data-notif-read="${n.id}">Ouvrir la tâche →</button>`;
     if (n.actionType === 'open_project') return `<button class="text-button" data-open-project="${n.projectId}" data-notif-read="${n.id}">Ouvrir le projet →</button>`;
     if (n.actionType === 'retry') return `<button class="text-button" data-retry-notif="${n.id}">Clore l’erreur →</button>`;
+    if (!canManageNotification(n)) return '<span class="form-note">Consultation uniquement</span>';
     return `<button class="text-button" data-notif-read="${n.id}">Marquer lu</button>`;
   };
   return `<div class="drawer-backdrop" id="drawerBackdrop"></div><aside class="notification-drawer">
@@ -1932,7 +1935,7 @@ function renderNotifications() {
     </div>
     <div class="notification-bulk"><button class="quiet-action" id="markAllRead">Tout marquer lu</button>${pendingApprovals().length ? `<button class="text-button" id="openFirstApproval">Traiter une validation</button>` : ''}</div>
     <div class="notification-list">
-      ${active.map(n => `<article class="notification-item severity-${n.severity} ${n.read ? 'is-read' : 'is-unread'}" data-notif="${n.id}"><span class="notif-dot"></span><div><div class="notif-title-line"><strong>${esc(n.title)}</strong>${Number(n.count || 1) > 1 ? `<span class="count-badge">×${n.count}</span>` : ''}</div><p>${esc(n.message)}</p><div class="notif-actions">${actionHtml(n)}${!n.read ? `<button class="quiet-action" data-notif-read="${n.id}">Lu</button>` : ''}${n.actionType !== 'approval' && n.actionType !== 'plan' && !['deadline','blocker'].includes(n.type) ? `<button class="quiet-action" data-resolve="${n.id}">Résoudre</button>` : ''}</div></div></article>`).join('') || '<div class="empty-state">Aucune notification dans ce filtre.</div>'}
+      ${active.map(n => `<article class="notification-item severity-${n.severity} ${n.read ? 'is-read' : 'is-unread'}" data-notif="${n.id}"><span class="notif-dot"></span><div><div class="notif-title-line"><strong>${esc(n.title)}</strong>${Number(n.count || 1) > 1 ? `<span class="count-badge">×${n.count}</span>` : ''}</div><p>${esc(n.message)}</p><div class="notif-actions">${actionHtml(n)}${!n.read && canManageNotification(n) ? `<button class="quiet-action" data-notif-read="${n.id}">Lu</button>` : ''}${canManageNotification(n) && n.actionType !== 'approval' && n.actionType !== 'plan' && !['deadline','blocker'].includes(n.type) ? `<button class="quiet-action" data-resolve="${n.id}">Résoudre</button>` : ''}</div></div></article>`).join('') || '<div class="empty-state">Aucune notification dans ce filtre.</div>'}
     </div>
   </aside>`;
 }
