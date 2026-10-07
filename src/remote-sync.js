@@ -481,7 +481,7 @@
     const localCalendarSources = calendarSources.map(row => ({
       id: row.id,
       integrationId: row.integration_id,
-      ownerId: integrationOwner.get(row.integration_id) || null,
+      ownerId: memberClient(row.owner_member_id) || integrationOwner.get(row.integration_id) || null,
       externalCalendarId: row.external_calendar_id,
       name: row.name,
       description: row.description || '',
