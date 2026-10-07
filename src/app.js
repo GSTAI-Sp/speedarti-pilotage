@@ -879,16 +879,16 @@ function teamDailySummary(reportDate) {
 // PILOT-SEC-002 — l’interface de production n’expose plus les outils de simulation/réinitialisation de démo.
 function renderToday() {
   const today = currentDateKey();
-  const myTasks = state.tasks.filter(t => t.assignedTo === state.currentUser.id && t.scheduledFor === today && t.status !== 'completed' && (!t.projectId || !project(t.projectId)?.archived));
-  const blocked = state.projects.filter(p => !p.archived && (p.status === 'blocked' || p.blocker)).slice(0, 3);
-  const toPlan = state.tasks.filter(t => t.needsPlanning && t.planningStatus === 'unplanned').length;
-  const approvals = pendingApprovals().length;
-  const events = state.calendarEvents.filter(e => e.at.startsWith(today));
+  const myTasks = state.tasks.filter(t => V21.taskInScope(state, t) && t.scheduledFor === today && t.status !== 'completed' && (!t.projectId || !project(t.projectId)?.archived));
+  const blocked = state.projects.filter(p => V21.projectInScope(state, p) && !p.archived && (p.status === 'blocked' || p.blocker)).slice(0, 3);
+  const toPlan = state.tasks.filter(t => V21.taskInScope(state, t) && t.needsPlanning && t.planningStatus === 'unplanned').length;
+  const approvals = pendingValidationCount();
+  const events = state.calendarEvents.filter(e => e.at && e.at.startsWith(today) && V21.eventInScope(state, e));
 
-  const overdue = state.tasks.filter(t => t.status !== 'completed' && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).length;
-  const activeBlockers = state.projects.filter(p => !p.archived && p.blocker && p.status !== 'completed').length;
+  const overdue = state.tasks.filter(t => V21.taskInScope(state, t) && t.status !== 'completed' && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).length;
+  const activeBlockers = state.projects.filter(p => V21.projectInScope(state, p) && !p.archived && p.blocker && p.status !== 'completed').length;
   const reportSummary = teamDailySummary(today);
-  return pageHeader(`Bonjour ${state.currentUser.name || teamName(state.currentUser.id)}`, longDateLabel(today)) + `
+  return pageHeader(`Bonjour ${state.currentUser.name || teamName(state.currentUser.id)}`, `${longDateLabel(today)} · ${V21.getProfileScopeLabel(state)}`) + `
     <section class="pilot-pulse">
       <button class="pulse-card pulse-red" data-notif-open-filter="warning"><span>Retards</span><strong>${overdue}</strong><small>échéance${overdue > 1 ? 's' : ''} dépassée${overdue > 1 ? 's' : ''}</small></button>
       <button class="pulse-card pulse-orange" data-notif-open-filter="warning"><span>Blocages</span><strong>${activeBlockers}</strong><small>projet${activeBlockers > 1 ? 's' : ''} à surveiller</small></button>
@@ -907,9 +907,9 @@ function renderToday() {
     </section>
 
     <section class="section">
-      <div class="section-title"><h2>Mes tâches</h2><button class="text-button" data-action="quick-add">+ Ajouter</button></div>
+      <div class="section-title"><h2>Tâches · ${esc(V21.getProfileScopeLabel(state))}</h2><button class="text-button" data-action="quick-add">+ Ajouter</button></div>
       <div class="task-list">
-        ${myTasks.map(t => `<div class="task-row"><button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}" aria-label="Terminer"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(teamName(t.assignedTo))}</small></button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="defer-btn" data-defer-task="${t.id}">Reporter</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || `<div class="empty-line">Aucune tâche prévue aujourd’hui.</div>`}
+        ${myTasks.map(t => `<div class="task-row"><button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}" aria-label="Terminer"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(teamName(t.assignedTo))}</small>${V21.renderTaskProgress(t)}</button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="defer-btn" data-defer-task="${t.id}">Reporter</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || `<div class="empty-line">Aucune tâche prévue aujourd’hui pour les profils sélectionnés.</div>`}
       </div>
     </section>
 
