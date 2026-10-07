@@ -544,7 +544,7 @@ export function renderGantt(state, labels = {}) {
       </div>
 
       <div class="v21-gantt-scroll">
-        <div class="v21-gantt-board" style="--gantt-min-width:${minWidth}px">
+        <div class="v21-gantt-board" style="--gantt-min-width:${minWidth}px;--gantt-columns:${ticks.length}">
           <div class="v21-gantt-header-row">
             <div class="v21-gantt-label"><strong>Projet / tâche</strong><small>Progression automatique</small></div>
             <div class="v21-gantt-timeline-cell v21-gantt-ticks">
