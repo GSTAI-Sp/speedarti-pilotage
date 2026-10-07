@@ -727,10 +727,11 @@ function scopedPendingValidations() {
   const selected = selectedProfileIds();
   return state.changeRequests.filter(r => {
     if (r.status !== 'pending' || project(r.projectId)?.archived) return false;
-    const requester = memberIdFromIdentity(r.requestedByMemberId || r.requestedBy);
-    if (requester && selected.has(requester)) return true;
-    const p = project(r.projectId);
-    return p ? V21.projectInScope(state, p) : false;
+    const requester = memberIdFromIdentity(r.requestedByMemberId || r.requestedBy)
+      || aiAgent(r.sourceAgent)?.personId
+      || project(r.projectId)?.owner
+      || null;
+    return Boolean(requester && selected.has(requester));
   });
 }
 
@@ -880,13 +881,13 @@ function teamDailySummary(reportDate) {
 function renderToday() {
   const today = currentDateKey();
   const myTasks = state.tasks.filter(t => V21.taskInScope(state, t) && t.scheduledFor === today && t.status !== 'completed' && (!t.projectId || !project(t.projectId)?.archived));
-  const blocked = state.projects.filter(p => V21.projectInScope(state, p) && !p.archived && (p.status === 'blocked' || p.blocker)).slice(0, 3);
+  const blocked = state.projects.filter(p => profileSelected(p.owner) && !p.archived && (p.status === 'blocked' || p.blocker)).slice(0, 3);
   const toPlan = state.tasks.filter(t => V21.taskInScope(state, t) && t.needsPlanning && t.planningStatus === 'unplanned').length;
   const approvals = pendingValidationCount();
   const events = state.calendarEvents.filter(e => e.at && e.at.startsWith(today) && V21.eventInScope(state, e));
 
   const overdue = state.tasks.filter(t => V21.taskInScope(state, t) && t.status !== 'completed' && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).length;
-  const activeBlockers = state.projects.filter(p => V21.projectInScope(state, p) && !p.archived && p.blocker && p.status !== 'completed').length;
+  const activeBlockers = state.projects.filter(p => profileSelected(p.owner) && !p.archived && p.blocker && p.status !== 'completed').length;
   const reportSummary = teamDailySummary(today);
   return pageHeader(`Bonjour ${state.currentUser.name || teamName(state.currentUser.id)}`, `${longDateLabel(today)} · ${V21.getProfileScopeLabel(state)}`) + `
     <section class="pilot-pulse">
