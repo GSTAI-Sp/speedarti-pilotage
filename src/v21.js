@@ -413,7 +413,8 @@ function projectInterval(state, projectId) {
 function projectAllowedByFilter(state, project) {
   if (ganttProject === 'all') return true;
   if (project.id === ganttProject) return true;
-  return descendantIds(state, ganttProject).includes(project.id);
+  if (descendantIds(state, ganttProject).includes(project.id)) return true;
+  return descendantIds(state, project.id).includes(ganttProject);
 }
 
 function taskMatchesGantt(state, task) {
@@ -457,6 +458,8 @@ function renderProjectRows(state, project, range, depth = 0) {
 
   const q = ganttSearch.trim().toLowerCase();
   const projectNameMatches = !q || String(project.name || '').toLowerCase().includes(q);
+  const taskConstraint = ganttStatus !== 'all' || ganttPriority !== 'all';
+  if (taskConstraint && !tasks.length && !children.length) return '';
   if (q && !projectNameMatches && !tasks.length && !children.length) return '';
 
   const pProgress = projectProgress(state, project);
