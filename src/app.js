@@ -1979,6 +1979,7 @@ function renderTaskModal() {
       <div class="form-field form-field-full"><span>Responsable — clique sur une personne</span>${teamPicker('taskOwner', owner)}</div>
       <label class="form-field"><span>Priorité</span><select id="taskPriority">${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}" ${value === priority ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <label class="form-field"><span>État</span><select id="taskStatus">${Object.entries(statusLabels).map(([value,label]) => `<option value="${value}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <div class="form-field form-field-full"><span>Progression automatique</span>${V21.renderTaskProgress(existing || { status }, false)}<small>0 % tant que la tâche n’est pas terminée · 100 % une fois terminée.</small></div>
       <label class="form-field"><span>Période Roadmap</span><select id="taskPlanning">${['backlog','this_week','this_month','next_3_months','later'].map(value => `<option value="${value}" ${value === bucket ? 'selected' : ''}>${planningLabels[value]}</option>`).join('')}</select></label>
       <label class="form-field"><span>Jour prévu</span><input id="taskScheduledFor" type="date" value="${esc(scheduled)}" /></label>
       <label class="form-field"><span>Échéance</span><input id="taskDueAt" type="date" value="${esc(due)}" /></label>
@@ -2085,7 +2086,7 @@ function renderApprovalModal(requestId) {
   if (!request || !p) return '';
   return `<div class="modal-backdrop" id="approvalBackdrop"></div><div class="modal-card approval-modal" role="dialog" aria-modal="true">
     <header><div><small>VALIDATION HUMAINE</small><h2>Passer le projet en Terminé ?</h2></div><button class="icon-btn" id="closeApproval">×</button></header>
-    <div class="approval-project"><span class="status-dot status-${p.status}"></span><div><strong>${esc(p.name)}</strong><small>État actuel : ${esc(statusLabels[p.status])} · ${projectEffectiveProgress(p)} %${projectHasChildren(p.id) ? ' · automatique' : ''}</small></div></div>
+    <div class="approval-project"><span class="status-dot status-${p.status}"></span><div><strong>${esc(p.name)}</strong><small>État actuel : ${esc(statusLabels[p.status])} · ${projectEffectiveProgress(p)} % · automatique</small></div></div>
     <div class="approval-summary"><div><small>Demandé par</small><strong>${esc(memberLabel(request.requestedByMemberId || request.requestedBy))}</strong></div><div><small>Action proposée</small><strong>Terminé · 100 %</strong></div></div>
     ${request.note ? `<p class="approval-note">${esc(request.note)}</p>` : ''}
     <p class="form-note">La progression peut évoluer automatiquement, mais le passage officiel du projet en <strong>Terminé</strong> demande une décision humaine.</p>
