@@ -2252,6 +2252,7 @@ async function mountIdeasPage() {
       state,
       currentUser: state.currentUser,
       isAdmin: isAdmin(),
+      profileIds: [...selectedProfileIds()],
       openProject: projectId => {
         selectedProjectId = projectId;
         currentPage = 'projects';
