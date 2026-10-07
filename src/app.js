@@ -3245,6 +3245,17 @@ async function updateTaskDatesFromGantt(taskId, startDate, endDate, mode = 'move
 }
 
 function bindEvents() {
+  V21.bindProfileSelector(state, render, ids => {
+    if (planningFilterOwner !== 'all' && !ids.includes(planningFilterOwner)) planningFilterOwner = 'all';
+    if (dailyReportPersonFilter !== 'all' && !ids.includes(dailyReportPersonFilter)) dailyReportPersonFilter = 'all';
+    if (selectedProjectId && !V21.projectInScope(state, project(selectedProjectId))) selectedProjectId = null;
+    trace('PILOT-V21-PROFILE', 'Filtre profils modifié', { profiles:ids });
+  });
+  V21.bindPlanningModeSwitch(render);
+  if (currentPage === 'planning' && V21.getPlanningMode() === 'gantt') {
+    V21.bindGantt(state, render, updateTaskDatesFromGantt);
+  }
+
   document.querySelector('#assistantSend')?.addEventListener('click', () => sendAssistantMessage());
   document.querySelector('#assistantInput')?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
