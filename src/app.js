@@ -1889,7 +1889,7 @@ function renderMore() {
 }
 
 function renderQuickActionModal() {
-  const unplanned = state.tasks.find(t => t.needsPlanning && t.planningStatus === 'unplanned');
+  const unplanned = state.tasks.find(t => V21.taskInScope(state, t) && t.needsPlanning && t.planningStatus === 'unplanned');
   const approval = pendingApprovals()[0];
   return `<div class="modal-backdrop" id="quickActionBackdrop"></div><div class="quick-action-modal" role="dialog" aria-modal="true">
     <header><div><small>ACTIONS RAPIDES</small><h2>Que veux-tu faire ?</h2></div><button class="icon-btn" id="closeQuickAction">×</button></header>
@@ -2139,7 +2139,7 @@ function renderDeferModal(taskId) {
 }
 
 function renderTeamWorkloadModal() {
-  const cards = state.team.map(m => {
+  const cards = selectedMembers().map(m => {
     const tasks = state.tasks.filter(t => t.assignedTo === m.id && t.status !== 'completed' && (!t.projectId || !project(t.projectId)?.archived));
     const today = tasks.filter(t => t.scheduledFor === currentDateKey()).length;
     const overdue = tasks.filter(t => t.dueAt && new Date(t.dueAt) < new Date()).length;
@@ -3663,11 +3663,11 @@ function updateSearch(query) {
   if (!target) return;
   if (!q) { target.innerHTML = '<p class="search-hint">Projet, tâche, document, compte rendu ou activité.</p>'; return; }
   const results = [
-    ...state.projects.filter(x => x.name.toLowerCase().includes(q)).map(x => ({ type:'Projet', title:x.name, action:`project:${x.id}` })),
-    ...state.tasks.filter(x => x.title.toLowerCase().includes(q)).map(x => ({ type:'Tâche', title:x.title, action:`task:${x.id}` })),
-    ...state.documents.filter(x => x.name.toLowerCase().includes(q)).map(x => ({ type:'Document', title:x.name, action:'documents' })),
-    ...state.activity.filter(x => `${x.actor || ''} ${x.text || ''}`.toLowerCase().includes(q)).map(x => ({ type:'Activité', title:x.text, action:'activity' })),
-    ...state.dailyReports.filter(x => `${teamName(x.personId)} ${x.summary || ''} ${(x.achievements || []).join(' ')} ${(x.blockers || []).join(' ')}`.toLowerCase().includes(q)).map(x => ({ type:'Compte rendu', title:`${teamName(x.personId)} · ${formatDate(x.reportDate)} · ${x.summary}`, action:'reports' }))
+    ...state.projects.filter(x => V21.projectInScope(state, x) && x.name.toLowerCase().includes(q)).map(x => ({ type:'Projet', title:x.name, action:`project:${x.id}` })),
+    ...state.tasks.filter(x => V21.taskInScope(state, x) && x.title.toLowerCase().includes(q)).map(x => ({ type:'Tâche', title:x.title, action:`task:${x.id}` })),
+    ...state.documents.filter(x => V21.documentInScope(state, x) && x.name.toLowerCase().includes(q)).map(x => ({ type:'Document', title:x.name, action:'documents' })),
+    ...state.activity.filter(x => V21.activityInScope(state, x) && `${x.actor || ''} ${x.text || ''}`.toLowerCase().includes(q)).map(x => ({ type:'Activité', title:x.text, action:'activity' })),
+    ...state.dailyReports.filter(x => V21.reportInScope(state, x) && `${teamName(x.personId)} ${x.summary || ''} ${(x.achievements || []).join(' ')} ${(x.blockers || []).join(' ')}`.toLowerCase().includes(q)).map(x => ({ type:'Compte rendu', title:`${teamName(x.personId)} · ${formatDate(x.reportDate)} · ${x.summary}`, action:'reports' }))
   ].slice(0,12);
   target.innerHTML = results.length ? results.map(r => `<button class="search-result" data-search-action="${r.action}"><small>${r.type}</small><strong>${esc(r.title)}</strong></button>`).join('') : '<p class="search-hint">Aucun résultat.</p>';
   target.querySelectorAll('[data-search-action]').forEach(btn => btn.addEventListener('click', () => {
