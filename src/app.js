@@ -2303,7 +2303,8 @@ function completeTask(taskId) {
   const done = t.status === 'completed';
   t.status = done ? 'todo' : 'completed';
   t.completedAt = done ? null : new Date().toISOString();
-  addActivity({ projectId: t.projectId, text: `${t.title} : ${done ? 'réouverte' : 'terminée'}`, internalTag: TAGS.TASK_COMPLETE });
+  V21.recalculateAutomaticProgress(state);
+  addActivity({ projectId: t.projectId, taskId:t.id, text: `${t.title} : ${done ? 'réouverte' : 'terminée'}`, internalTag: TAGS.TASK_COMPLETE });
   persist(TAGS.TASK_COMPLETE, 'Statut tâche modifié', { taskId, status: t.status });
   render();
 }
@@ -2478,7 +2479,8 @@ function createTaskFromForm() {
       completedAt: status === 'completed' ? (existing.completedAt || new Date().toISOString()) : null,
       updatedAt: new Date().toISOString()
     });
-    addActivity({ projectId, text: `Tâche modifiée : ${title}`, internalTag: TAGS.TASK_EDIT });
+    V21.recalculateAutomaticProgress(state);
+    addActivity({ projectId, taskId:existing.id, text: `Tâche modifiée : ${title}`, internalTag: TAGS.TASK_EDIT });
     if (oldOwner !== assignedTo) {
       addActivity({ projectId, text: `${title} assignée à ${teamName(assignedTo)}`, internalTag: TAGS.TASK_ASSIGN });
       if (assignedTo !== state.currentUser.id) {
@@ -2501,7 +2503,8 @@ function createTaskFromForm() {
       sourceType: 'manual', createdAt: new Date().toISOString(), completedAt: status === 'completed' ? new Date().toISOString() : null
     };
     state.tasks.push(newTask);
-    addActivity({ projectId, text: `Nouvelle tâche créée : ${title} · ${teamName(assignedTo)}`, internalTag: TAGS.TASK_CREATE });
+    V21.recalculateAutomaticProgress(state);
+    addActivity({ projectId, taskId:newTask.id, text: `Nouvelle tâche créée : ${title} · ${teamName(assignedTo)}`, internalTag: TAGS.TASK_CREATE });
     if (assignedTo !== state.currentUser.id) {
       upsertNotification({
         recipientId:assignedTo, severity:'info', type:'task_assignment',
@@ -2860,7 +2863,8 @@ function advanceTaskStatus(taskId) {
   else if (['todo','paused','blocked'].includes(t.status)) t.status = 'in_progress';
   else t.status = 'completed';
   t.completedAt = t.status === 'completed' ? new Date().toISOString() : null;
-  addActivity({ projectId:t.projectId, text:`${t.title} : ${statusLabels[previous]} → ${statusLabels[t.status]}`, internalTag:TAGS.TASK_STATUS_QUICK });
+  V21.recalculateAutomaticProgress(state);
+  addActivity({ projectId:t.projectId, taskId:t.id, text:`${t.title} : ${statusLabels[previous]} → ${statusLabels[t.status]}`, internalTag:TAGS.TASK_STATUS_QUICK });
   persist(TAGS.TASK_STATUS_QUICK, 'Statut tâche modifié rapidement', { taskId, previous, status:t.status });
   render();
 }
