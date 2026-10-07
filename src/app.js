@@ -922,7 +922,7 @@ function renderToday() {
         ${isAdmin() ? `
           <div class="section-title"><h2>Équipe</h2><button class="text-button" id="openTeamWorkload">Voir la charge →</button></div>
           <div class="team-list">
-            ${state.team.filter(m => m.id !== state.currentUser.id).map(m => {
+            ${selectedMembers().filter(m => m.id !== state.currentUser.id).map(m => {
               const pending = state.tasks.filter(t => t.assignedTo === m.id && t.status !== 'completed').length;
               const blockers = state.projects.filter(p => p.owner === m.id && p.blocker).length;
               return `<button class="team-row team-row-button" data-team-planning="${m.id}"><div><strong>${esc(m.name)}</strong><small>${esc(m.role)}</small></div><span>${pending} tâches · ${blockers ? `${blockers} blocage` : 'Tout va bien'} →</span></button>`;
@@ -931,7 +931,7 @@ function renderToday() {
         : `
           <div class="section-title"><h2>Mes projets accessibles</h2><button class="text-button" data-page="projects">Voir les projets →</button></div>
           <div class="team-list">
-            ${state.projects.filter(p => !p.archived).slice(0,4).map(p => `<button class="team-row team-row-button" data-project="${p.id}"><div><strong>${esc(p.name)}</strong><small>${p.owner === state.currentUser.id ? 'Responsable' : 'Participant'} · ${projectMemberIds(p).length} membre${projectMemberIds(p).length > 1 ? 's' : ''}</small></div><span>${projectEffectiveProgress(p)} % →</span></button>`).join('') || '<div class="empty-line">Aucun projet accessible.</div>'}
+            ${state.projects.filter(p => !p.archived && V21.projectInScope(state, p)).slice(0,4).map(p => `<button class="team-row team-row-button" data-project="${p.id}"><div><strong>${esc(p.name)}</strong><small>${p.owner === state.currentUser.id ? 'Responsable' : 'Participant'} · ${projectMemberIds(p).length} membre${projectMemberIds(p).length > 1 ? 's' : ''}</small></div><span>${projectEffectiveProgress(p)} % →</span></button>`).join('') || '<div class="empty-line">Aucun projet accessible.</div>'}
           </div>`}
       </div>
     </section>
