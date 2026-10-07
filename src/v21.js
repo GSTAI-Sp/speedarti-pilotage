@@ -5,6 +5,7 @@ let profileMenuOpen = false;
 let planningMode = 'roadmap';
 let ganttScale = 'month';
 let ganttProject = 'all';
+let ganttSubproject = 'all';
 let ganttStatus = 'all';
 let ganttPriority = 'all';
 let ganttSearch = '';
@@ -15,6 +16,7 @@ try {
   if (saved.planningMode === 'gantt' || saved.planningMode === 'roadmap') planningMode = saved.planningMode;
   if (['week','month','year','n1','n2','n3'].includes(saved.ganttScale)) ganttScale = saved.ganttScale;
   if (typeof saved.ganttProject === 'string') ganttProject = saved.ganttProject;
+  if (typeof saved.ganttSubproject === 'string') ganttSubproject = saved.ganttSubproject;
   if (typeof saved.ganttStatus === 'string') ganttStatus = saved.ganttStatus;
   if (typeof saved.ganttPriority === 'string') ganttPriority = saved.ganttPriority;
   if (typeof saved.ganttSearch === 'string') ganttSearch = saved.ganttSearch;
@@ -29,7 +31,7 @@ function esc(value = '') {
 
 function persistGantt() {
   localStorage.setItem(GANTT_KEY, JSON.stringify({
-    planningMode, ganttScale, ganttProject, ganttStatus, ganttPriority, ganttSearch,
+    planningMode, ganttScale, ganttProject, ganttSubproject, ganttStatus, ganttPriority, ganttSearch,
     ganttAnchor:ganttAnchor.toISOString()
   }));
 }
@@ -410,11 +412,21 @@ function projectInterval(state, projectId) {
   };
 }
 
+function projectMatchesTreeFilter(state, projectId, filterId) {
+  if (filterId === 'all') return true;
+  if (projectId === filterId) return true;
+  if (descendantIds(state, filterId).includes(projectId)) return true;
+  return descendantIds(state, projectId).includes(filterId);
+}
+
 function projectAllowedByFilter(state, project) {
-  if (ganttProject === 'all') return true;
-  if (project.id === ganttProject) return true;
-  if (descendantIds(state, ganttProject).includes(project.id)) return true;
-  return descendantIds(state, project.id).includes(ganttProject);
+  return projectMatchesTreeFilter(state, project.id, ganttProject)
+    && projectMatchesTreeFilter(state, project.id, ganttSubproject);
+}
+
+function taskProjectMatchesFilter(state, taskProjectId, filterId) {
+  if (filterId === 'all') return true;
+  return taskProjectId === filterId || descendantIds(state, filterId).includes(taskProjectId);
 }
 
 function taskMatchesGantt(state, task) {
@@ -423,7 +435,8 @@ function taskMatchesGantt(state, task) {
     const p = (state?.projects || []).find(item => item.id === task.projectId);
     if (p?.archived) return false;
   }
-  if (ganttProject !== 'all' && task.projectId !== ganttProject && !descendantIds(state, ganttProject).includes(task.projectId)) return false;
+  if (!taskProjectMatchesFilter(state, task.projectId, ganttProject)) return false;
+  if (!taskProjectMatchesFilter(state, task.projectId, ganttSubproject)) return false;
   if (ganttStatus !== 'all' && task.status !== ganttStatus) return false;
   if (ganttPriority !== 'all' && task.priority !== ganttPriority) return false;
   const q = ganttSearch.trim().toLowerCase();
@@ -493,6 +506,15 @@ export function renderGantt(state, labels = {}) {
     const selectedProject = (state?.projects || []).find(project => project.id === ganttProject);
     if (!selectedProject || !projectInScope(state, selectedProject)) ganttProject = 'all';
   }
+  if (ganttSubproject !== 'all') {
+    const selectedSubproject = (state?.projects || []).find(project => project.id === ganttSubproject);
+    const compatibleWithProject = ganttProject === 'all'
+      || selectedSubproject?.id === ganttProject
+      || descendantIds(state, ganttProject).includes(selectedSubproject?.id);
+    if (!selectedSubproject || !selectedSubproject.parentProjectId || !projectInScope(state, selectedSubproject) || !compatibleWithProject) {
+      ganttSubproject = 'all';
+    }
+  }
   const range = rangeForScale();
   const ticks = ganttTicks(range);
   const roots = (state?.projects || [])
@@ -519,11 +541,19 @@ export function renderGantt(state, labels = {}) {
     .map(p => `<option value="${esc(p.id)}" ${ganttProject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)
     .join('');
 
+  const subprojectOptions = (state?.projects || [])
+    .filter(p => !p.archived && p.parentProjectId && projectInScope(state,p))
+    .filter(p => ganttProject === 'all' || p.id === ganttProject || descendantIds(state, ganttProject).includes(p.id))
+    .sort((a,b) => String(a.name || '').localeCompare(String(b.name || ''),'fr'))
+    .map(p => `<option value="${esc(p.id)}" ${ganttSubproject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)
+    .join('');
+
   return `
     <section class="v21-gantt-shell">
       <div class="v21-gantt-toolbar">
         <div class="v21-gantt-filters">
           <select id="v21GanttProject"><option value="all">Tous les projets</option>${projectOptions}</select>
+          <select id="v21GanttSubproject"><option value="all">Tous les sous-projets</option>${subprojectOptions}</select>
           <input id="v21GanttSearch" value="${esc(ganttSearch)}" placeholder="Filtrer une tâche…" />
           <select id="v21GanttStatus">
             <option value="all">Tous les statuts</option>
@@ -572,7 +602,15 @@ function shiftAnchor(direction) {
 }
 
 export function bindGantt(state, rerender, onTaskDates) {
-  document.querySelector('#v21GanttProject')?.addEventListener('change', e => { ganttProject=e.target.value; persistGantt(); rerender(); });
+  document.querySelector('#v21GanttProject')?.addEventListener('change', e => {
+    ganttProject=e.target.value;
+    if (ganttSubproject !== 'all' && ganttProject !== 'all' && !descendantIds(state, ganttProject).includes(ganttSubproject)) {
+      ganttSubproject='all';
+    }
+    persistGantt();
+    rerender();
+  });
+  document.querySelector('#v21GanttSubproject')?.addEventListener('change', e => { ganttSubproject=e.target.value; persistGantt(); rerender(); });
   document.querySelector('#v21GanttStatus')?.addEventListener('change', e => { ganttStatus=e.target.value; persistGantt(); rerender(); });
   document.querySelector('#v21GanttPriority')?.addEventListener('change', e => { ganttPriority=e.target.value; persistGantt(); rerender(); });
   document.querySelector('#v21GanttSearch')?.addEventListener('input', e => {
