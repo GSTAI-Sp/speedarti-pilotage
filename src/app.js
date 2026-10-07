@@ -881,13 +881,13 @@ function teamDailySummary(reportDate) {
 function renderToday() {
   const today = currentDateKey();
   const myTasks = state.tasks.filter(t => V21.taskInScope(state, t) && t.scheduledFor === today && t.status !== 'completed' && (!t.projectId || !project(t.projectId)?.archived));
-  const blocked = state.projects.filter(p => profileSelected(p.owner) && !p.archived && (p.status === 'blocked' || p.blocker)).slice(0, 3);
+  const blocked = state.projects.filter(p => V21.projectInScope(state, p) && !p.archived && (p.status === 'blocked' || p.blocker)).slice(0, 3);
   const toPlan = state.tasks.filter(t => V21.taskInScope(state, t) && t.needsPlanning && t.planningStatus === 'unplanned').length;
   const approvals = pendingValidationCount();
   const events = state.calendarEvents.filter(e => e.at && e.at.startsWith(today) && V21.eventInScope(state, e));
 
   const overdue = state.tasks.filter(t => V21.taskInScope(state, t) && t.status !== 'completed' && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).length;
-  const activeBlockers = state.projects.filter(p => profileSelected(p.owner) && !p.archived && p.blocker && p.status !== 'completed').length;
+  const activeBlockers = state.projects.filter(p => V21.projectInScope(state, p) && !p.archived && p.blocker && p.status !== 'completed').length;
   const reportSummary = teamDailySummary(today);
   return pageHeader(`Bonjour ${state.currentUser.name || teamName(state.currentUser.id)}`, `${longDateLabel(today)} · ${V21.getProfileScopeLabel(state)}`) + `
     <section class="pilot-pulse">
@@ -2071,7 +2071,7 @@ function renderAiSimulationModal() {
       <label class="form-field form-field-full"><span>Source</span><select id="aiSource">${activeAiAgents().map(agent => `<option value="${agent.id}">${esc(aiAgentLabel(agent.id))}</option>`).join('')}</select></label>
       <label class="form-field form-field-full"><span>Projet</span><select id="aiProject"><option value="">Sans projet</option>${state.projects.filter(p => !p.archived).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
       <label class="form-field form-field-full" data-ai-section="detail"><span id="aiDetailLabel">Nouvel élément détecté</span><input id="aiTaskTitle" type="text" value="Ajouter le contrôle automatique des marges" maxlength="180" /></label>
-      <label class="form-field" data-ai-section="progress"><span>Nouvelle progression</span><input id="aiProgress" type="number" min="0" max="100" step="5" value="80" /></label>
+      <div class="form-field" data-ai-section="progress"><span>Progression</span><small>Recalculée automatiquement à partir des tâches terminées du projet et de ses sous-projets.</small></div>
       <div class="form-field form-field-full" data-ai-section="new-task"><span>Responsable proposé</span>${teamPicker('aiOwner', state.currentUser.id)}</div>
       <label class="form-field" data-ai-section="new-task"><span>Priorité proposée</span><select id="aiPriority">${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}" ${value === 'medium' ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <label class="form-field form-field-full" data-ai-section="new-task"><span>Suggestion IA pour la Roadmap</span><select id="aiSuggestedBucket">${['this_week','this_month','next_3_months','later','backlog'].map(value => `<option value="${value}" ${value === 'this_month' ? 'selected' : ''}>${planningLabels[value]}</option>`).join('')}</select></label>
@@ -2235,7 +2235,7 @@ async function ensureIdeasAssets() {
     await loadExternalScript('./src/pilotage-ideas.js?v=20260923-3', 'PILOTAGE_IDEAS');
   }
   if (!window.PILOTAGE_IDEAS_UI) {
-    await loadExternalScript('./src/ideas-ui.js?v=20260923-5', 'PILOTAGE_IDEAS_UI');
+    await loadExternalScript('./src/ideas-ui.js?v=20261007-3', 'PILOTAGE_IDEAS_UI');
   }
 
   if (!window.PILOTAGE_IDEAS || !window.PILOTAGE_IDEAS_UI) {
@@ -2383,14 +2383,11 @@ function decideApproval(requestId, approved) {
   request.decidedBy = state.currentUser.id;
   if (approved) {
     p.status = 'completed';
-    if (!projectHasChildren(p.id)) {
-      p.progress = 100;
-      p.manualProgress = 100;
-    }
     p.blocker = '';
     p.nextAction = 'Projet clôturé';
     p.updatedAt = new Date().toISOString();
     addActivity({ projectId:p.id, text:'Projet validé comme Terminé', internalTag:TAGS.PROJECT_COMPLETE_APPROVE });
+    V21.recalculateAutomaticProgress(state);
     trace(TAGS.PROJECT_COMPLETE_APPROVE, 'Clôture projet approuvée', { projectId:p.id, requestId });
   } else {
     addActivity({ projectId:p.id, text:'Passage en Terminé refusé', internalTag:TAGS.PROJECT_COMPLETE_REJECT });
@@ -2770,7 +2767,7 @@ function syncAiSimulationFields() {
   if (mode === 'blocker') { if(label) label.textContent='Blocage détecté'; if(input) input.value='Accès fournisseur indisponible'; if(rule) rule.innerHTML='<strong>Règle :</strong> un blocage opérationnel est enregistré automatiquement et remonte dans les alertes.'; }
   if (mode === 'complete_project') { if(rule) rule.innerHTML='<strong>Règle :</strong> l’IA ne peut pas terminer officiellement un projet. Une validation Thibault est obligatoire.'; }
   if (mode === 'technical_error') { if(label) label.textContent='Erreur technique'; if(input) input.value='Échec de synchronisation de la mise à jour'; if(rule) rule.innerHTML='<strong>Anti-spam :</strong> les erreurs identiques sont regroupées dans une seule notification avec un compteur.'; }
-  if (mode === 'routine_progress') { if(rule) rule.innerHTML='<strong>Règle :</strong> une progression normale est appliquée automatiquement et ajoutée à l’historique.'; }
+  if (mode === 'routine_progress') { if(rule) rule.innerHTML='<strong>Règle :</strong> aucun pourcentage n’est saisi : Pilotage recalcule la progression réelle depuis les tâches terminées.'; }
   if (mode === 'duplicate_request') { if(rule) rule.innerHTML='<strong>Anti-doublon :</strong> une requête IA déjà reçue est ignorée sans recréer de tâche ni d’action.'; }
 }
 
@@ -2815,17 +2812,12 @@ function simulateAiIncoming() {
 
   if (mode === 'routine_progress') {
     const p = project(projectId); if (!p) return;
-    if (projectHasChildren(p.id)) {
-      window.alert('La progression de ce projet est automatique car il contient des sous-projets.');
-      return;
-    }
-    const previous = Number(p.progress || 0);
-    const next = Math.max(0, Math.min(100, Number(document.querySelector('#aiProgress')?.value || previous)));
-    p.progress = next;
-    p.manualProgress = next;
+    const previous = projectEffectiveProgress(p);
+    V21.recalculateAutomaticProgress(state);
+    const next = projectEffectiveProgress(p);
     p.updatedAt = new Date().toISOString();
-    addActivity({ actor, projectId, text:`Progression : ${previous} % → ${next} %`, internalTag:TAGS.AI_ROUTINE_UPDATE });
-    persist(TAGS.AI_ROUTINE_UPDATE, 'Progression IA appliquée automatiquement', { source, projectId, previous, next });
+    addActivity({ actor, projectId, text:`Progression recalculée automatiquement : ${previous} % → ${next} %`, internalTag:TAGS.AI_ROUTINE_UPDATE });
+    persist(TAGS.AI_ROUTINE_UPDATE, 'Progression projet recalculée depuis les tâches', { source, projectId, previous, next, automatic:true });
     aiSimulationOpen = false; selectedProjectId = projectId; currentPage = 'projects'; render(); return;
   }
 
