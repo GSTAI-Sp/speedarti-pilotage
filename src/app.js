@@ -471,14 +471,23 @@ function persist(tag, message, details = {}) {
   trace(tag, message, details);
 }
 
-function addActivity({ actor = null, projectId = null, text, internalTag }) {
+function addActivity({ actor = null, projectId = null, taskId = null, text, internalTag }) {
   actor = actor || state.currentUser?.name || teamName(state.currentUser?.id) || 'Utilisateur';
-  state.activity.unshift({ id: crypto.randomUUID(), at: new Date().toISOString(), actor, projectId, text, internalTag });
-  persist(TAGS.ACTIVITY_LOG, 'Activité ajoutée', { projectId, internalTag });
+  state.activity.unshift({
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    actor,
+    actorMemberId: state.currentUser?.id || null,
+    projectId,
+    taskId,
+    text,
+    internalTag
+  });
+  persist(TAGS.ACTIVITY_LOG, 'Activité ajoutée', { projectId, taskId, internalTag });
 }
 
 function unreadNotifications() {
-  return state.notifications.filter(n => isMyNotification(n) && !n.resolved && !n.read).length;
+  return state.notifications.filter(n => V21.notificationInScope(state, n) && !n.resolved && !n.read).length;
 }
 
 function layout(content) {
