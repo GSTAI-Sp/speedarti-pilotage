@@ -33,7 +33,7 @@
 
 .v21-gantt-shell{border:1px solid #dce7f4;border-radius:18px;background:#fff;overflow:hidden;box-shadow:0 6px 22px rgba(23,52,95,.05)}
 .v21-gantt-toolbar{display:grid;gap:10px;padding:13px;border-bottom:1px solid #e8eef6;background:linear-gradient(180deg,#fbfdff,#f6faff)}
-.v21-gantt-filters{display:grid;grid-template-columns:minmax(170px,1fr) minmax(180px,1.2fr) minmax(145px,.8fr) minmax(145px,.8fr);gap:8px}
+.v21-gantt-filters{display:grid;grid-template-columns:minmax(160px,1fr) minmax(160px,1fr) minmax(180px,1.15fr) minmax(140px,.8fr) minmax(140px,.8fr);gap:8px}
 .v21-gantt-filters select,.v21-gantt-filters input{width:100%;min-height:36px;border:1px solid #d9e4f1;border-radius:10px;background:#fff;color:#17345f;padding:0 10px;font-size:10px;outline:none}
 .v21-gantt-filters select:focus,.v21-gantt-filters input:focus{border-color:#67a7ff;box-shadow:0 0 0 3px rgba(44,132,255,.1)}
 .v21-gantt-scale{display:flex;flex-wrap:wrap;gap:5px}
