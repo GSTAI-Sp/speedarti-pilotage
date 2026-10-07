@@ -280,8 +280,12 @@ function memberLabel(value) {
 function canManageProject(p) { return Boolean(p) && (isAdmin() || p.owner === state.currentUser.id); }
 function canEditReport(report) { return Boolean(report) && (isAdmin() || report.personId === state.currentUser.id); }
 function canCreateReportFor(memberId) { return isAdmin() || memberId === state.currentUser.id; }
+function selectedProfileIds() { return V21.getSelectedProfileIds(state); }
+function selectedMembers() { return V21.getSelectedMembers(state); }
+function profileSelected(memberId) { return selectedProfileIds().has(memberId); }
+function canManageNotification(notification) { return isAdmin() || notification?.recipientId === state.currentUser.id; }
 function visibleReportMembers() {
-  return isAdmin() ? state.team : state.team.filter(m => m.id === state.currentUser.id);
+  return selectedMembers();
 }
 function teamPicker(targetId, selectedId) {
   const selected = selectedId || state.currentUser.id;
