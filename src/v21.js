@@ -169,7 +169,7 @@ export function taskInScope(state, task) {
 export function projectInScope(state, project) {
   if (!project) return false;
   const selected = getSelectedProfileIds(state);
-  if (selected.has(project.owner)) return true;
+  if (project.owner) return selected.has(project.owner);
   return (Array.isArray(project.members) ? project.members : []).some(id => selected.has(id));
 }
 
