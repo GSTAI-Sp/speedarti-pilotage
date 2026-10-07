@@ -38,8 +38,19 @@ function profileKey(state) {
   return `${PROFILE_KEY_PREFIX}:${state?.currentUser?.id || 'anonymous'}`;
 }
 
+function orderedMembers(state) {
+  const preferred = ['u-thibault','u-guillaume','u-anne'];
+  return [...(state?.team || [])].sort((a,b) => {
+    const ai = preferred.indexOf(a.id);
+    const bi = preferred.indexOf(b.id);
+    const ar = ai === -1 ? 999 : ai;
+    const br = bi === -1 ? 999 : bi;
+    return ar - br || String(a.name || '').localeCompare(String(b.name || ''), 'fr');
+  });
+}
+
 function teamIds(state) {
-  return new Set((state?.team || []).map(member => member.id).filter(Boolean));
+  return new Set(orderedMembers(state).map(member => member.id).filter(Boolean));
 }
 
 export function ensureProfileScope(state) {
@@ -63,7 +74,7 @@ export function getSelectedProfileIds(state) {
 
 export function getSelectedMembers(state) {
   const selected = getSelectedProfileIds(state);
-  return (state?.team || []).filter(member => selected.has(member.id));
+  return orderedMembers(state).filter(member => selected.has(member.id));
 }
 
 export function getProfileScopeLabel(state) {
@@ -76,7 +87,7 @@ export function getProfileScopeLabel(state) {
 
 export function renderProfileSelector(state) {
   const selected = getSelectedProfileIds(state);
-  const members = state?.team || [];
+  const members = orderedMembers(state);
   return `
     <div class="v21-profile-scope ${profileMenuOpen ? 'is-open' : ''}">
       <button class="v21-profile-trigger" id="v21ProfileTrigger" type="button" aria-expanded="${profileMenuOpen ? 'true' : 'false'}">
@@ -120,7 +131,7 @@ export function bindProfileSelector(state, rerender, onChange = null) {
   });
 
   document.querySelector('[data-v21-profile-all]')?.addEventListener('click', () => {
-    const ids = (state?.team || []).map(member => member.id).filter(Boolean);
+    const ids = orderedMembers(state).map(member => member.id).filter(Boolean);
     if (!ids.length) return;
     localStorage.setItem(profileKey(state), JSON.stringify(ids));
     profileMenuOpen = false;
