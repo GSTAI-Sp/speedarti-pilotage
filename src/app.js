@@ -948,8 +948,15 @@ function renderToday() {
 }
 
 function renderPlanning() {
+  const header = pageHeader('Planification', `Organiser le court, moyen et long terme · ${V21.getProfileScopeLabel(state)}`, '<button class="primary-btn" data-action="quick-add">+ Ajouter une tâche</button>');
+  const modeSwitch = V21.renderPlanningModeSwitch();
+  if (V21.getPlanningMode() === 'gantt') {
+    return header + modeSwitch + V21.renderGantt(state, { statusLabels, priorityLabels });
+  }
+
   const buckets = ['backlog','this_week','this_month','next_3_months','later'];
   const filteredTasks = state.tasks.filter(t => {
+    if (!V21.taskInScope(state, t)) return false;
     if (t.status === 'completed') return false;
     if (t.projectId && project(t.projectId)?.archived) return false;
     if (planningFilterProject !== 'all' && t.projectId !== planningFilterProject) return false;
@@ -958,15 +965,15 @@ function renderPlanning() {
     return true;
   });
 
-  return pageHeader('Planification', 'Organiser le court, moyen et long terme', '<button class="primary-btn" data-action="quick-add">+ Ajouter une tâche</button>') + `
+  return header + modeSwitch + `
     <div class="toolbar">
       <select id="planningProjectFilter">
         <option value="all">Tous les projets</option>
-        ${state.projects.filter(p => !p.archived).map(p => `<option value="${p.id}" ${planningFilterProject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+        ${state.projects.filter(p => !p.archived && V21.projectInScope(state, p)).map(p => `<option value="${p.id}" ${planningFilterProject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
       </select>
       <select id="planningOwnerFilter">
         <option value="all">Tous les responsables</option>
-        ${state.team.map(m => `<option value="${m.id}" ${planningFilterOwner === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+        ${selectedMembers().map(m => `<option value="${m.id}" ${planningFilterOwner === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
       </select>
       <select id="planningPriorityFilter">
         <option value="all">Toutes les priorités</option>
@@ -982,7 +989,8 @@ function renderPlanning() {
           <div class="planning-dropzone" data-dropzone="${bucket}">
             ${items.map(t => `<article class="planning-card ${t.needsPlanning && t.planningStatus === 'unplanned' ? 'needs-planning' : ''}" draggable="true" data-task="${t.id}">
               <div class="planning-card-head"><strong>${esc(t.title)}</strong><button class="card-edit" data-edit-task="${t.id}" title="Modifier">✎</button></div>
-              <small>${esc(project(t.projectId)?.name || 'Sans projet')}</small>
+              <small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(teamName(t.assignedTo))}</small>
+              ${V21.renderTaskProgress(t)}
               ${t.scheduledFor ? `<div class="date-chip">Prévue ${formatDate(t.scheduledFor)}</div>` : ''}
               <footer><span class="owner-pill">${esc(teamName(t.assignedTo))}</span>${priorityBadge(t.priority)}</footer>
               <div class="card-actions"><button class="mini-action" data-plan="${t.id}">${t.needsPlanning && t.planningStatus === 'unplanned' ? 'Planifier' : 'Déplacer / dater'}</button><button class="mini-action secondary-mini" data-edit-task="${t.id}">Modifier</button></div>
