@@ -1,5 +1,6 @@
 import { loadState, saveState } from './state.js';
 import { TAGS, trace } from './tags.js';
+import * as V21 from './v21.js';
 
 let state = loadState();
 let currentPage = 'today';
