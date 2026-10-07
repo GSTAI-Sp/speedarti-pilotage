@@ -2472,6 +2472,8 @@ function createTaskFromForm() {
     const oldDueAt = existing.dueAt || null;
     Object.assign(existing, {
       title, projectId, assignedTo, priority, status, planningBucket, scheduledFor, dueAt,
+      plannedStart: scheduledFor || dateKey(dueAt) || null,
+      plannedEnd: dateKey(dueAt) || scheduledFor || null,
       planningStatus: 'planned', needsPlanning: false, sortOrder: existing.sortOrder || Date.now(),
       completedAt: status === 'completed' ? (existing.completedAt || new Date().toISOString()) : null,
       updatedAt: new Date().toISOString()
@@ -2493,6 +2495,8 @@ function createTaskFromForm() {
   } else {
     const newTask = {
       id: crypto.randomUUID(), title, projectId, assignedTo, status, priority, scheduledFor, dueAt,
+      plannedStart: scheduledFor || dateKey(dueAt) || null,
+      plannedEnd: dateKey(dueAt) || scheduledFor || null,
       planningStatus: 'planned', planningBucket, needsPlanning: false, sortOrder: Date.now(),
       sourceType: 'manual', createdAt: new Date().toISOString(), completedAt: status === 'completed' ? new Date().toISOString() : null
     };
@@ -2979,6 +2983,8 @@ function deferTask(choice) {
   if (choice === 'next_week') { t.scheduledFor=nextWeekMondayKey(); t.planningBucket='this_week'; }
   if (choice === 'this_month') { t.scheduledFor=null; t.planningBucket='this_month'; }
   if (choice === 'backlog') { t.scheduledFor=null; t.planningBucket='backlog'; }
+  t.plannedStart = t.scheduledFor || null;
+  t.plannedEnd = t.scheduledFor || null;
   t.planningStatus='planned'; t.needsPlanning=false; t.sortOrder=Date.now();
   addActivity({ projectId:t.projectId, text:`${t.title} reportée vers ${choice === 'tomorrow' ? 'demain' : choice === 'next_week' ? 'la semaine prochaine' : choice === 'this_month' ? 'ce mois' : 'À organiser'}`, internalTag:TAGS.TASK_DEFER });
   persist(TAGS.TASK_DEFER, 'Tâche reportée', { taskId:t.id, choice, previousDate, previousBucket, scheduledFor:t.scheduledFor, planningBucket:t.planningBucket });
@@ -3460,6 +3466,8 @@ function bindEvents() {
     t.assignedTo = assignedTo;
     t.scheduledFor = scheduledFor;
     t.dueAt = dueAt;
+    t.plannedStart = scheduledFor || dateKey(dueAt) || null;
+    t.plannedEnd = dateKey(dueAt) || scheduledFor || null;
     if (previousOwner !== assignedTo) addActivity({ projectId:t.projectId, text:`${t.title} assignée à ${teamName(assignedTo)}`, internalTag:TAGS.TASK_ASSIGN });
     state.notifications.filter(n => n.taskId === id).forEach(n => { n.read = true; n.resolved = true; });
     planningTaskId = null;
