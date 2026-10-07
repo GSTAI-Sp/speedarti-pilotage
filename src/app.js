@@ -505,6 +505,7 @@ function layout(content) {
       <div class="workspace">
         <header class="topbar">
           <div class="mobile-brand">SpeedArti <span>Pilotage</span></div>
+          <div class="v21-profile-slot">${V21.renderProfileSelector(state)}</div>
           <div class="top-actions">
             <button class="quick-create-btn" id="quickCreateBtn" title="Actions rapides"><span>＋</span><b>Créer</b></button>
             <button class="icon-btn" id="refreshRemoteBtn" aria-label="Actualiser les données équipe" title="Actualiser les données équipe">↻</button>
