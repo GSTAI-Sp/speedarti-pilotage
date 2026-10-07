@@ -362,6 +362,7 @@ function ensureRuntimeState() {
     if (typeof n.read !== 'boolean') n.read = Boolean(n.readAt);
     if (typeof n.resolved !== 'boolean') n.resolved = Boolean(n.resolvedAt);
   });
+  V21.recalculateAutomaticProgress(state);
 }
 
 function pendingCompletionRequest(projectId) {
