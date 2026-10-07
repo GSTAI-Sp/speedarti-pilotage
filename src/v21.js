@@ -489,6 +489,10 @@ function renderProjectRows(state, project, range, depth = 0) {
 }
 
 export function renderGantt(state, labels = {}) {
+  if (ganttProject !== 'all') {
+    const selectedProject = (state?.projects || []).find(project => project.id === ganttProject);
+    if (!selectedProject || !projectInScope(state, selectedProject)) ganttProject = 'all';
+  }
   const range = rangeForScale();
   const ticks = ganttTicks(range);
   const roots = (state?.projects || [])
