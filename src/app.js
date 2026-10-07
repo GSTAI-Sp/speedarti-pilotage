@@ -427,13 +427,13 @@ function refreshSmartNotifications() {
       if (!stillActive) { n.resolved = true; n.resolvedAt = new Date().toISOString(); changed = true; trace(TAGS.NOTIF_RESOLVE, 'Alerte blocage résolue automatiquement', { notificationId:n.id, projectId:n.projectId }); }
     }
   });
-  state.tasks.filter(t => t.status !== 'completed' && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).forEach(t => {
+  state.tasks.filter(t => t.assignedTo === state.currentUser.id && t.status !== 'completed' && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).forEach(t => {
     const key = `deadline:${t.id}`;
     const before = state.notifications.find(n => isMyNotification(n) && !n.resolved && n.groupKey === key);
     upsertNotification({ severity:'warning', type:'deadline', title:'Échéance dépassée', message:`${t.title} · échéance ${formatDate(t.dueAt)}`, actionType:'edit_task', taskId:t.id, projectId:t.projectId, groupKey:key, internalTag:TAGS.NOTIF_DEADLINE });
     if (!before) { changed = true; trace(TAGS.SMART_ALERTS, 'Alerte échéance générée', { taskId:t.id }); }
   });
-  state.projects.filter(p => p.blocker && p.status !== 'completed' && !p.archived).forEach(p => {
+  state.projects.filter(p => p.owner === state.currentUser.id && p.blocker && p.status !== 'completed' && !p.archived).forEach(p => {
     const key = `blocker:${p.id}`;
     const before = state.notifications.find(n => isMyNotification(n) && !n.resolved && n.groupKey === key);
     upsertNotification({ severity:'warning', type:'blocker', title:'Blocage projet', message:`${p.name} · ${p.blocker}`, actionType:'open_project', projectId:p.id, groupKey:key, internalTag:TAGS.NOTIF_BLOCKER });
@@ -1917,12 +1917,13 @@ function renderNotifications() {
     return true;
   });
   const actionHtml = n => {
-    if (n.actionType === 'plan') return `<button class="text-button" data-plan="${n.taskId}" data-notif-read="${n.id}">Planifier →</button>`;
-    if (n.actionType === 'approval') return `<button class="text-button" data-approval="${n.changeRequestId}" data-notif-read="${n.id}">Examiner →</button>`;
-    if (n.actionType === 'edit_task') return `<button class="text-button" data-edit-task="${n.taskId}" data-notif-read="${n.id}">Ouvrir la tâche →</button>`;
-    if (n.actionType === 'open_project') return `<button class="text-button" data-open-project="${n.projectId}" data-notif-read="${n.id}">Ouvrir le projet →</button>`;
-    if (n.actionType === 'retry') return `<button class="text-button" data-retry-notif="${n.id}">Clore l’erreur →</button>`;
-    if (!canManageNotification(n)) return '<span class="form-note">Consultation uniquement</span>';
+    const canManage = canManageNotification(n);
+    if (n.actionType === 'plan') return canManage ? `<button class="text-button" data-plan="${n.taskId}" data-notif-read="${n.id}">Planifier →</button>` : '<span class="form-note">Planification du profil sélectionné</span>';
+    if (n.actionType === 'approval') return isAdmin() ? `<button class="text-button" data-approval="${n.changeRequestId}" data-notif-read="${n.id}">Examiner →</button>` : '<span class="form-note">En attente de la Direction</span>';
+    if (n.actionType === 'edit_task') return `<button class="text-button" data-edit-task="${n.taskId}">Ouvrir la tâche →</button>`;
+    if (n.actionType === 'open_project') return `<button class="text-button" data-open-project="${n.projectId}"${canManage ? ` data-notif-read="${n.id}"` : ''}>Ouvrir le projet →</button>`;
+    if (n.actionType === 'retry') return canManage ? `<button class="text-button" data-retry-notif="${n.id}">Clore l’erreur →</button>` : '<span class="form-note">Consultation uniquement</span>';
+    if (!canManage) return '<span class="form-note">Consultation uniquement</span>';
     return `<button class="text-button" data-notif-read="${n.id}">Marquer lu</button>`;
   };
   return `<div class="drawer-backdrop" id="drawerBackdrop"></div><aside class="notification-drawer">
@@ -2871,7 +2872,7 @@ function openTeamPlanning(userId) {
 
 function markAllNotificationsRead() {
   const now = new Date().toISOString();
-  state.notifications.filter(n => isMyNotification(n) && !n.resolved && !n.read).forEach(n => { n.read=true; n.readAt=now; });
+  state.notifications.filter(n => V21.notificationInScope(state, n) && canManageNotification(n) && !n.resolved && !n.read).forEach(n => { n.read=true; n.readAt=now; });
   persist(TAGS.NOTIF_BULK_READ, 'Toutes les notifications actives marquées lues', {});
   render();
 }
