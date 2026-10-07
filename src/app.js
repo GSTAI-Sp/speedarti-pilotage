@@ -823,7 +823,7 @@ function collectAutomaticDailyReports(reportDate = dailyReportDate) {
   let created = 0;
   let updated = 0;
   let skipped = 0;
-  activeAiAgents().forEach(agent => {
+  activeAiAgents().filter(agent => selectedProfileIds().has(agent.personId)).forEach(agent => {
     const member = state.team.find(m => m.id === agent.personId);
     if (!member) return;
     const existing = dailyReportsForPerson(member.id, reportDate).find(r => r.source === 'ai' && r.sourceAgent === agent.id);
@@ -1686,7 +1686,7 @@ function aiConnectorStatus(agent, reportDate = currentDateKey()) {
 function renderAiIngestPanel() {
   const scopeIds = new Set(visibleReportMembers().map(member => member.id));
   const agents = activeAiAgents().filter(agent => scopeIds.has(agent.personId));
-  const dayEvents = aiEventsForDate(dailyReportDate);
+  const dayEvents = aiEventsForDate(dailyReportDate).filter(event => scopeIds.has(event.personId));
   const latest = dayEvents.slice(0, 8);
 
   return `<section class="section ai-ingest-panel">
