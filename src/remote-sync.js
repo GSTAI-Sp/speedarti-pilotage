@@ -462,7 +462,7 @@
     const localDriveItems = driveItems.map(row => ({
       id: row.id,
       integrationId: row.integration_id,
-      ownerId: integrationOwner.get(row.integration_id) || null,
+      ownerId: memberClient(row.owner_member_id) || integrationOwner.get(row.integration_id) || null,
       projectId: projectClient(row.project_id),
       externalFileId: row.external_file_id,
       parentExternalFileId: row.parent_external_file_id || null,
@@ -502,7 +502,7 @@
         externalEventId: row.external_event_id,
         calendarSourceId: row.calendar_source_id,
         calendarName: source?.name || 'Google Calendar',
-        ownerId: source ? integrationOwner.get(source.integration_id) || null : null,
+        ownerId: source ? (memberClient(source.owner_member_id) || integrationOwner.get(source.integration_id) || null) : null,
         projectId: projectClient(row.project_id),
         taskId: taskClient(row.task_id),
         title: row.summary || '(Sans titre)',
