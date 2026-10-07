@@ -3196,6 +3196,54 @@ async function saveGoogleCalendarLink() {
   }
 }
 
+async function updateTaskDatesFromGantt(taskId, startDate, endDate, mode = 'move') {
+  const t = task(taskId);
+  if (!t) return;
+
+  const allowed = isAdmin()
+    || t.assignedTo === state.currentUser.id
+    || (t.projectId && projectMemberIds(project(t.projectId)).includes(state.currentUser.id));
+
+  if (!allowed) {
+    window.alert('Tu peux consulter cette tâche mais pas modifier sa planification.');
+    return;
+  }
+
+  const label = mode === 'start' ? 'la date de début' : mode === 'end' ? 'la date de fin' : 'les dates';
+  if (!window.confirm('Modifier ' + label + ' de « ' + t.title + ' » ?')) return;
+
+  const previous = {
+    plannedStart:t.plannedStart || null,
+    plannedEnd:t.plannedEnd || null,
+    scheduledFor:t.scheduledFor || null,
+    dueAt:t.dueAt || null
+  };
+
+  t.plannedStart = startDate;
+  t.plannedEnd = endDate;
+  t.scheduledFor = startDate;
+  t.dueAt = toDueIso(endDate);
+  t.planningStatus = 'planned';
+  t.needsPlanning = false;
+  t.updatedAt = new Date().toISOString();
+
+  V21.recalculateAutomaticProgress(state);
+  addActivity({
+    projectId:t.projectId,
+    taskId:t.id,
+    text:'Planification Gantt : ' + t.title + ' · ' + startDate + ' → ' + endDate,
+    internalTag:TAGS.TASK_SCHEDULE
+  });
+  persist(TAGS.TASK_SCHEDULE, 'Dates modifiées depuis le Gantt', {
+    taskId:t.id,
+    previous,
+    plannedStart:startDate,
+    plannedEnd:endDate,
+    mode
+  });
+  render();
+}
+
 function bindEvents() {
   document.querySelector('#assistantSend')?.addEventListener('click', () => sendAssistantMessage());
   document.querySelector('#assistantInput')?.addEventListener('keydown', e => {
