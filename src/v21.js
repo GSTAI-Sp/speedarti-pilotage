@@ -580,7 +580,7 @@ export function bindGantt(state, rerender, onTaskDates) {
     ganttAnchor=new Date();
     persistGantt();
     rerender();
-  }));
+  });
 
   document.querySelectorAll('[data-gantt-task-bar]').forEach(bar => {
     bar.addEventListener('pointerdown', event => {
@@ -588,14 +588,15 @@ export function bindGantt(state, rerender, onTaskDates) {
       const taskId = bar.dataset.ganttTaskBar;
       const task = (state?.tasks || []).find(item => item.id === taskId);
       const interval = taskInterval(task);
-      const timeline = bar.closest('.v21-gantt-body') || document.querySelector('[data-v21-gantt-timeline]');
-      if (!task || !interval || !timeline) return;
+      const body = bar.closest('.v21-gantt-body') || document.querySelector('[data-v21-gantt-timeline]');
+      const timeline = bar.closest('.v21-gantt-timeline-cell');
+      if (!task || !interval || !body || !timeline) return;
 
       const handle = event.target.closest('[data-gantt-resize]');
       const mode = handle?.dataset.ganttResize || 'move';
       const startX = event.clientX;
       const timelineWidth = timeline.getBoundingClientRect().width || 1;
-      const totalDays = Math.max(1, Number(timeline.dataset.totalDays || 1));
+      const totalDays = Math.max(1, Number(body.dataset.totalDays || 1));
       let deltaDays = 0;
 
       event.preventDefault();
