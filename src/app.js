@@ -3479,8 +3479,6 @@ function bindEvents() {
   document.querySelector('#projectModalBackdrop')?.addEventListener('click', closeProjectModal);
   document.querySelector('#saveProject')?.addEventListener('click', createProjectFromForm);
   document.querySelector('#projectName')?.addEventListener('keydown', e => { if (e.key === 'Enter') createProjectFromForm(); });
-  document.querySelector('#projectProgress')?.addEventListener('input', e => { const out=document.querySelector('#projectProgressValue'); if(out) out.textContent=`${e.target.value} %`; });
-
   document.querySelector('#closeDocumentModal')?.addEventListener('click', closeDocumentModal);
   document.querySelector('#cancelDocumentModal')?.addEventListener('click', closeDocumentModal);
   document.querySelector('#documentModalBackdrop')?.addEventListener('click', closeDocumentModal);
