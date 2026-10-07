@@ -3166,11 +3166,10 @@ async function saveGoogleCalendarSelection() {
   const sources = (state.calendarSources || []).filter(source => source.ownerId === state.currentUser.id);
   const selections = sources.map(source => {
     const selectedInput = document.querySelector(`[data-google-calendar-selected="${CSS.escape(source.externalCalendarId)}"]`);
-    const sharedInput = document.querySelector(`[data-google-calendar-shared="${CSS.escape(source.externalCalendarId)}"]`);
     return {
       external_calendar_id: source.externalCalendarId,
       selected: Boolean(selectedInput?.checked),
-      shared_with_team: Boolean(sharedInput?.checked)
+      shared_with_team: Boolean(selectedInput?.checked)
     };
   });
   const result = await googleRun('calendar-save', () => window.PILOTAGE_GOOGLE.setCalendarSelection(selections));
