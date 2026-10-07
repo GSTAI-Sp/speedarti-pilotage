@@ -1106,7 +1106,9 @@ function renderProjectDetail(id) {
   const p = project(id);
   if (!p || !V21.projectInScope(state, p)) { selectedProjectId = null; return renderProjects(); }
 
-  const tasks = state.tasks.filter(t => t.projectId === id && V21.taskInScope(state, t));
+  const allDirectTasks = state.tasks.filter(t => t.projectId === id);
+  const tasks = allDirectTasks.filter(t => V21.taskInScope(state, t));
+  const hiddenDirectTaskCount = Math.max(0, allDirectTasks.length - tasks.length);
   const docs = allDocumentRefs().filter(d => d.projectId === id);
   const activities = state.activity.filter(a => a.projectId === id).slice(0,20);
   const children = projectChildren(id).filter(child => !child.archived);
@@ -1201,6 +1203,14 @@ function renderProjectDetail(id) {
   const tasksTab = `
     <section class="section">
       <div class="section-title"><h2>Tâches de ce projet</h2><button class="text-button" data-action="add-project-task" data-project-id="${p.id}">+ Ajouter</button></div>
+      ${hiddenDirectTaskCount ? `
+        <div class="project-tree-help">
+          <span>◉</span>
+          <div>
+            <strong>${tasks.length} tâche${tasks.length > 1 ? 's' : ''} affichée${tasks.length > 1 ? 's' : ''} sur ${allDirectTasks.length}</strong>
+            <small>${hiddenDirectTaskCount} tâche${hiddenDirectTaskCount > 1 ? 's' : ''} masquée${hiddenDirectTaskCount > 1 ? 's' : ''} par « Profils affichés ». La progression automatique reste calculée sur toutes les tâches du projet et de son arborescence.</small>
+          </div>
+        </div>` : ''}
       <div class="task-list">
         ${tasks.map(t => `<div class="task-row"><button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${statusLabels[t.status]} · ${esc(teamName(t.assignedTo))}${t.scheduledFor ? ` · ${formatDate(t.scheduledFor)}` : ''}</small>${V21.renderTaskProgress(t)}</button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || '<div class="empty-line">Aucune tâche directe dans ce projet.</div>'}
       </div>
@@ -1260,7 +1270,7 @@ function renderProjectDetail(id) {
       ${[
         ['overview','Vue d’ensemble'],
         ['subprojects',`Sous-projets (${children.length})`],
-        ['tasks',`Tâches (${tasks.length})`],
+        ['tasks',`Tâches (${hiddenDirectTaskCount ? `${tasks.length}/${allDirectTasks.length}` : tasks.length})`],
         ['documents',`Documents (${docs.length})`],
         ['ideas','Idées'],
         ['activity','Activité']
