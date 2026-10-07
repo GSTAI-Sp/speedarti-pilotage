@@ -1040,7 +1040,7 @@ function renderProjectTreeNode(p, visibleSet, depth = 0) {
         </button>
 
         <div class="project-progress">
-          <span>${progress} % ${hasChildren ? '<em>auto</em>' : ''}</span>
+          <span>${progress} % <em>auto</em></span>
           <div class="progress"><i style="width:${progress}%"></i></div>
         </div>
 
@@ -1201,7 +1201,7 @@ function renderProjectDetail(id) {
     <section class="section">
       <div class="section-title"><h2>Tâches de ce projet</h2><button class="text-button" data-action="add-project-task" data-project-id="${p.id}">+ Ajouter</button></div>
       <div class="task-list">
-        ${tasks.map(t => `<div class="task-row"><button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${statusLabels[t.status]} · ${esc(teamName(t.assignedTo))}${t.scheduledFor ? ` · ${formatDate(t.scheduledFor)}` : ''}</small></button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || '<div class="empty-line">Aucune tâche directe dans ce projet.</div>'}
+        ${tasks.map(t => `<div class="task-row"><button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${statusLabels[t.status]} · ${esc(teamName(t.assignedTo))}${t.scheduledFor ? ` · ${formatDate(t.scheduledFor)}` : ''}</small>${V21.renderTaskProgress(t)}</button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || '<div class="empty-line">Aucune tâche directe dans ce projet.</div>'}
       </div>
     </section>`;
 
