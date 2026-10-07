@@ -169,16 +169,22 @@
     return rows;
   }
 
+  function profileScopedItems() {
+    const profileIds = Array.isArray(ctx?.profileIds) ? new Set(ctx.profileIds.filter(Boolean)) : null;
+    return profileIds?.size ? ui.items.filter(item => profileIds.has(item.author_client_key)) : [...ui.items];
+  }
+
   function modules() {
-    return [...new Set(ui.items.map(x => x.module).filter(Boolean))]
+    return [...new Set(profileScopedItems().map(x => x.module).filter(Boolean))]
       .sort((a,b) => a.localeCompare(b,'fr'));
   }
 
   function summary() {
-    const all = ui.items.length;
-    const review = ui.items.filter(x => x.status === 'under_review').length;
-    const validated = ui.items.filter(x => ['validated','planned','in_development'].includes(x.status)).length;
-    const realized = ui.items.filter(x => x.status === 'realized').length;
+    const scoped = profileScopedItems();
+    const all = scoped.length;
+    const review = scoped.filter(x => x.status === 'under_review').length;
+    const validated = scoped.filter(x => ['validated','planned','in_development'].includes(x.status)).length;
+    const realized = scoped.filter(x => x.status === 'realized').length;
     return { all, review, validated, realized };
   }
 
@@ -204,7 +210,9 @@
       .sort((a,b) => a.name.localeCompare(b.name,'fr'))
       .map(p => `<option value="${esc(p.id)}" ${ui.project === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)
       .join('');
+    const selectedProfiles = new Set(Array.isArray(ctx?.profileIds) ? ctx.profileIds : []);
     const authorOptions = (ctx?.state?.team || [])
+      .filter(m => !selectedProfiles.size || selectedProfiles.has(m.id))
       .map(m => `<option value="${esc(m.id)}" ${ui.author === m.id ? 'selected' : ''}>${esc(m.name)}</option>`)
       .join('');
     const moduleOptions = modules()
