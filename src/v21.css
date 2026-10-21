@@ -33,7 +33,7 @@
 
 .v21-gantt-shell{border:1px solid #dce7f4;border-radius:18px;background:#fff;overflow:hidden;box-shadow:0 6px 22px rgba(23,52,95,.05)}
 .v21-gantt-toolbar{display:grid;gap:10px;padding:13px;border-bottom:1px solid #e8eef6;background:linear-gradient(180deg,#fbfdff,#f6faff)}
-.v21-gantt-filters{display:grid;grid-template-columns:minmax(160px,1fr) minmax(160px,1fr) minmax(180px,1.15fr) minmax(140px,.8fr) minmax(140px,.8fr);gap:8px}
+.v21-gantt-filters{display:grid;grid-template-columns:minmax(140px,.85fr) minmax(160px,1fr) minmax(160px,1fr) minmax(180px,1.1fr) minmax(135px,.8fr) minmax(135px,.8fr);gap:8px}
 .v21-gantt-filters select,.v21-gantt-filters input{width:100%;min-height:36px;border:1px solid #d9e4f1;border-radius:10px;background:#fff;color:#17345f;padding:0 10px;font-size:10px;outline:none}
 .v21-gantt-filters select:focus,.v21-gantt-filters input:focus{border-color:#67a7ff;box-shadow:0 0 0 3px rgba(44,132,255,.1)}
 .v21-gantt-scale{display:flex;flex-wrap:wrap;gap:5px}
@@ -49,6 +49,9 @@
 .v21-gantt-label>div{min-width:0}
 .v21-gantt-label strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#17345f;font-size:10px}
 .v21-gantt-label small{display:block;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#75879a;font-size:8px}
+.v21-gantt-label.v21-gantt-open{width:100%;border-top:0;border-bottom:0;border-left:0;background:transparent;text-align:left;font:inherit;cursor:pointer}
+.v21-gantt-label.v21-gantt-open:hover{background:#f5f9ff}
+.v21-gantt-label.v21-gantt-open:focus-visible{outline:2px solid #67a7ff;outline-offset:-2px}
 .v21-gantt-folder{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;background:#eaf3ff;color:#1671e8;font-size:10px;flex:0 0 auto}
 .v21-gantt-task-dot{display:grid;place-items:center;width:19px;height:19px;border-radius:999px;background:#f0f5fa;color:#6b7d90;font-size:8px;flex:0 0 auto}
 .v21-gantt-timeline-cell{position:relative;min-height:44px;background-image:linear-gradient(to right,rgba(218,228,239,.58) 1px,transparent 1px);background-size:calc(100% / var(--gantt-columns,12)) 100%}
@@ -57,19 +60,34 @@
 .v21-gantt-body .v21-gantt-row{border-bottom:1px solid #edf2f7}
 .v21-gantt-row.project-row{background:#fbfdff}
 .v21-gantt-row.task-row-gantt:hover{background:#f8fbff}
-.v21-gantt-bar{position:absolute;top:10px;height:24px;border-radius:8px;overflow:hidden;display:flex;align-items:center;min-width:9px;box-shadow:0 2px 7px rgba(30,73,126,.12);user-select:none;touch-action:none}
-.v21-gantt-bar.project{background:#cfe3fb;border:1px solid #98c3f5;color:#174a86}
-.v21-gantt-bar.task{background:#dcecff;border:1px solid #8dbcf3;color:#123d70;cursor:grab}
-.v21-gantt-bar.task:active,.v21-gantt-bar.task.is-dragging{cursor:grabbing}
-.v21-gantt-bar .v21-gantt-fill{position:absolute;inset:0 auto 0 0;background:rgba(22,113,232,.27);pointer-events:none}
-.v21-gantt-bar strong{position:relative;z-index:2;display:block;width:100%;padding:0 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px}
+.v21-gantt-bar{position:absolute;top:10px;height:24px;border-radius:8px;overflow:hidden;display:flex;align-items:center;min-width:9px;box-shadow:0 2px 7px rgba(30,73,126,.12);user-select:none;touch-action:none;cursor:pointer}
+.v21-gantt-bar.project{background:#e8eef5;border:1px solid #b9c8d8;color:#17345f}
+.v21-gantt-bar.task{background:#edf3fa;border:1px solid #b9cbe0;color:#17345f}
+.v21-gantt-bar.is-editable{cursor:grab}
+.v21-gantt-bar.is-editable:active,.v21-gantt-bar.is-editable.is-dragging{cursor:grabbing}
+.v21-gantt-bar .v21-gantt-fill{position:absolute;inset:0 auto 0 0;background:#7ab2ef;pointer-events:none}
+.v21-gantt-bar.progress-zero .v21-gantt-fill{width:0!important}
+.v21-gantt-bar.progress-active .v21-gantt-fill{background:#5ca4ef}
+.v21-gantt-bar.progress-done{border-color:#7bc79a;background:#eaf7ef;color:#14532d}
+.v21-gantt-bar.progress-done .v21-gantt-fill{background:#5fbd83}
+.v21-gantt-bar.progress-manual{border-style:dashed;border-color:#aa83d8}
+.v21-gantt-bar.progress-manual::after{content:"M";position:absolute;right:3px;top:3px;z-index:3;display:grid;place-items:center;width:16px;height:16px;border-radius:999px;background:#fff;color:#7650a8;font-size:7px;font-weight:900}
+.v21-gantt-bar strong{position:relative;z-index:2;display:block;width:100%;padding:0 22px 0 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px}
 .v21-gantt-bar.project strong{text-align:center}
-.v21-gantt-bar.task>i{position:absolute;top:0;bottom:0;width:8px;z-index:4;cursor:ew-resize}
-.v21-gantt-bar.task>i:first-of-type{left:0}
-.v21-gantt-bar.task>i:last-of-type{right:0}
+.v21-gantt-bar>i{position:absolute;top:0;bottom:0;width:10px;z-index:4;cursor:ew-resize;background:transparent}
+.v21-gantt-bar>i:first-of-type{left:0}
+.v21-gantt-bar>i:last-of-type{right:0}
 .v21-gantt-offrange{display:grid;place-items:center;height:44px;color:#b0bcc9;font-size:10px}
 .v21-gantt-empty{padding:28px;text-align:center;color:#718397;font-size:10px}
 .v21-gantt-help{padding:10px 13px;border-top:1px solid #e8eef6;background:#fbfdff;color:#657b91;font-size:9px}
+.v21-gantt-unplanned{display:grid;gap:8px;padding:12px 13px;border-top:1px solid #e8eef6;background:#fffaf0}
+.v21-gantt-unplanned>div:first-child{display:flex;align-items:baseline;gap:8px}
+.v21-gantt-unplanned strong{color:#744210;font-size:10px}
+.v21-gantt-unplanned small{color:#9a6a2b;font-size:8px}
+.v21-gantt-unplanned-list{display:flex;gap:6px;flex-wrap:wrap}
+.v21-gantt-unplanned-list button{min-height:34px;padding:6px 9px;border:1px solid #ead7af;border-radius:9px;background:#fff;color:#5f4a22;font-size:9px;font-weight:750;cursor:pointer}
+.v21-gantt-unplanned-list button span{margin-left:6px;color:#a06b13;font-weight:850}
+.project-auto-progress-badge.manual{background:#f1e9fb;color:#7650a8}
 .v21-gantt-bar.is-dragging{z-index:20;opacity:.86;box-shadow:0 8px 20px rgba(20,72,135,.22)}
 
 @media (max-width:900px){
@@ -93,6 +111,9 @@
   .v21-gantt-nav strong{width:100%;margin:3px 0 0}
   .v21-gantt-header-row,.v21-gantt-row{grid-template-columns:175px minmax(0,1fr)}
   .v21-gantt-label{min-height:42px;padding-left:calc(8px + (var(--gantt-depth,0) * 11px))}
-  .v21-gantt-bar{top:9px;height:23px}
+  .v21-gantt-bar{top:6px;height:32px}
+  .v21-gantt-bar>i{width:16px}
+  .v21-gantt-unplanned-list{display:grid}
+  .v21-gantt-unplanned-list button{min-height:44px;text-align:left}
   .v21-task-progress{min-width:110px}
 }
