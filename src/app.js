@@ -1045,7 +1045,7 @@ function renderProjectTreeNode(p, visibleSet, depth = 0) {
         </button>
 
         <div class="project-progress">
-          <span>${progress} % <em>auto</em></span>
+          <span>${progress} % <em>${p.progressMode === 'manual' ? 'manuel' : 'auto'}</em></span>
           <div class="progress"><i style="width:${progress}%"></i></div>
         </div>
 
@@ -1149,19 +1149,20 @@ function renderProjectDetail(id) {
       </div>
       <div><small>Prochaine action</small><strong>${esc(p.nextAction || 'Non définie')}</strong></div>
       <div><small>Participants</small><strong>${projectMemberIds(p).map(memberId => esc(teamName(memberId))).join(' · ') || 'Aucun'}</strong></div>
+      <div><small>Période planifiée</small><strong>${p.plannedStart || p.plannedEnd ? `${formatDate(p.plannedStart || p.plannedEnd)} → ${formatDate(p.plannedEnd || p.plannedStart)}` : 'À planifier'}</strong></div>
     </section>
 
     ${hasChildren ? `
       <section class="section project-tree-summary">
         <div class="section-title">
-          <div><h2>Arborescence</h2><small>La progression du projet principal est calculée automatiquement sur toutes les tâches ci-dessous.</small></div>
+          <div><h2>Arborescence</h2><small>${p.progressMode === 'manual' ? `Affichage manuel à ${progress} %. Le calcul automatique continue en arrière-plan à ${V21.automaticProjectProgress(state,p)} %.` : 'La progression du projet principal est calculée automatiquement sur toutes les tâches ci-dessous.'}</small></div>
           <button class="text-button" data-project-tab="subprojects">Voir les sous-projets →</button>
         </div>
         <div class="project-tree-stats">
           <span><b>${children.length}</b><small>Sous-projets directs</small></span>
           <span><b>${projectDescendantIds(p.id).length}</b><small>Sous-projets au total</small></span>
           <span><b>${subtree.done}/${subtree.total}</b><small>Tâches terminées</small></span>
-          <span><b>${progress}%</b><small>Progression automatique</small></span>
+          <span><b>${progress}%</b><small>${p.progressMode === 'manual' ? 'Progression manuelle' : 'Progression automatique'}</small></span>
         </div>
         <div class="project-child-preview">
           ${children.slice(0,5).map(child => {
@@ -1173,7 +1174,7 @@ function renderProjectDetail(id) {
       : `
       <section class="section project-leaf-progress-note">
         <span>◉</span>
-        <div><strong>Progression automatique</strong><small>La barre est toujours calculée à partir des tâches du projet. Une tâche simple vaut 0 % tant qu’elle n’est pas terminée puis 100 % une fois terminée.</small></div>
+        <div><strong>${p.progressMode === 'manual' ? 'Progression manuelle' : 'Progression automatique'}</strong><small>${p.progressMode === 'manual' ? `Valeur affichée : ${progress} %. Le calcul automatique continue à ${V21.automaticProjectProgress(state,p)} % et sera restauré si tu repasses en mode automatique.` : 'La barre est calculée à partir des tâches du projet. Une tâche simple vaut 0 % tant qu’elle n’est pas terminée puis 100 % une fois terminée.'}</small></div>
       </section>`}
 
     ${pending ? `
@@ -2105,7 +2106,7 @@ function renderAiSimulationModal() {
         <option value="new_task">Nouvelle tâche importante → à planifier</option>
         <option value="routine_progress">Progression normale → automatique</option>
         <option value="blocker">Nouveau blocage → automatique + alerte</option>
-        <option value="complete_project">Projet proposé comme terminé → validation Thibault</option>
+        <option value="complete_project">Projet proposé comme terminé → validation Direction</option>
         <option value="technical_error">Erreur technique → notification regroupée</option><option value="duplicate_request">Rejouer une requête IA → doublon ignoré</option>
       </select></label>
       <label class="form-field form-field-full"><span>Source</span><select id="aiSource">${activeAiAgents().map(agent => `<option value="${agent.id}">${esc(aiAgentLabel(agent.id))}</option>`).join('')}</select></label>
@@ -2848,7 +2849,7 @@ function syncAiSimulationFields() {
   const rule = document.querySelector('#aiRuleText');
   if (mode === 'new_task') { if(label) label.textContent='Nouvel élément détecté'; if(input) input.value='Ajouter le contrôle automatique des marges'; if(rule) rule.innerHTML='<strong>Règle :</strong> l’IA suggère une période, mais elle ne décide jamais à ta place.'; }
   if (mode === 'blocker') { if(label) label.textContent='Blocage détecté'; if(input) input.value='Accès fournisseur indisponible'; if(rule) rule.innerHTML='<strong>Règle :</strong> un blocage opérationnel est enregistré automatiquement et remonte dans les alertes.'; }
-  if (mode === 'complete_project') { if(rule) rule.innerHTML='<strong>Règle :</strong> l’IA ne peut pas terminer officiellement un projet. Une validation Thibault est obligatoire.'; }
+  if (mode === 'complete_project') { if(rule) rule.innerHTML='<strong>Règle :</strong> l’IA ne peut pas terminer officiellement un projet. Une validation Direction est obligatoire.'; }
   if (mode === 'technical_error') { if(label) label.textContent='Erreur technique'; if(input) input.value='Échec de synchronisation de la mise à jour'; if(rule) rule.innerHTML='<strong>Anti-spam :</strong> les erreurs identiques sont regroupées dans une seule notification avec un compteur.'; }
   if (mode === 'routine_progress') { if(rule) rule.innerHTML='<strong>Règle :</strong> aucun pourcentage n’est saisi : Pilotage recalcule la progression réelle depuis les tâches terminées.'; }
   if (mode === 'duplicate_request') { if(rule) rule.innerHTML='<strong>Anti-doublon :</strong> une requête IA déjà reçue est ignorée sans recréer de tâche ni d’action.'; }
