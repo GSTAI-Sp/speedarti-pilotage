@@ -1966,8 +1966,8 @@ function renderPlanningModal(taskId) {
     <div class="modal-task"><strong>${esc(t.title)}</strong><span>${esc(project(t.projectId)?.name || 'Sans projet')}</span></div>
     <div class="form-grid compact-grid">
       <div class="form-field form-field-full"><span>Responsable</span>${teamPicker('planOwner', t.assignedTo)}</div>
-      <label class="form-field"><span>Jour prévu (optionnel)</span><input id="planScheduledFor" type="date" value="${esc(t.scheduledFor || '')}" /></label>
-      <label class="form-field"><span>Échéance (optionnelle)</span><input id="planDueAt" type="date" value="${esc(dateKey(t.dueAt))}" /></label>
+      <label class="form-field"><span>Date de début (optionnelle)</span><input id="planPlannedStart" type="date" value="${esc(t.plannedStart || t.scheduledFor || '')}" /></label>
+      <label class="form-field"><span>Date de fin (optionnelle)</span><input id="planPlannedEnd" type="date" value="${esc(t.plannedEnd || dateKey(t.dueAt) || t.plannedStart || t.scheduledFor || '')}" /></label>
     </div>
     <fieldset class="plan-options"><legend>Période Roadmap</legend>
       ${['this_week','this_month','next_3_months','later','backlog'].map(bucket => `<label><input type="radio" name="planBucket" value="${bucket}" ${bucket === selectedBucket ? 'checked' : ''}/><span>${planningLabels[bucket]}</span></label>`).join('')}
@@ -3067,7 +3067,9 @@ function deferTask(choice) {
   if (choice === 'backlog') { t.scheduledFor=null; t.planningBucket='backlog'; }
   t.plannedStart = t.scheduledFor || null;
   t.plannedEnd = t.scheduledFor || null;
-  t.planningStatus='planned'; t.needsPlanning=false; t.sortOrder=Date.now();
+  t.planningStatus = t.scheduledFor ? 'planned' : 'unplanned';
+  t.needsPlanning = !t.scheduledFor;
+  t.sortOrder=Date.now();
   addActivity({ projectId:t.projectId, text:`${t.title} reportée vers ${choice === 'tomorrow' ? 'demain' : choice === 'next_week' ? 'la semaine prochaine' : choice === 'this_month' ? 'ce mois' : 'À organiser'}`, internalTag:TAGS.TASK_DEFER });
   persist(TAGS.TASK_DEFER, 'Tâche reportée', { taskId:t.id, choice, previousDate, previousBucket, scheduledFor:t.scheduledFor, planningBucket:t.planningBucket });
   deferTaskId=null;
@@ -3585,18 +3587,30 @@ function bindEvents() {
     if (!t) return;
     const previousOwner = t.assignedTo;
     const assignedTo = document.querySelector('#planOwner')?.value || t.assignedTo;
-    const scheduledFor = document.querySelector('#planScheduledFor')?.value || null;
-    const dueAt = toDueIso(document.querySelector('#planDueAt')?.value || '');
+    let plannedStart = document.querySelector('#planPlannedStart')?.value || null;
+    let plannedEnd = document.querySelector('#planPlannedEnd')?.value || null;
+    if (plannedStart && !plannedEnd) plannedEnd = plannedStart;
+    if (!plannedStart && plannedEnd) plannedStart = plannedEnd;
+    if (plannedStart && plannedEnd && plannedEnd < plannedStart) {
+      window.alert('La date de fin de la tâche ne peut pas être avant la date de début.');
+      document.querySelector('#planPlannedEnd')?.focus();
+      return;
+    }
     moveTask(id, selected);
     t.assignedTo = assignedTo;
-    t.scheduledFor = scheduledFor;
-    t.dueAt = dueAt;
-    t.plannedStart = scheduledFor || dateKey(dueAt) || null;
-    t.plannedEnd = dateKey(dueAt) || scheduledFor || null;
+    t.scheduledFor = plannedStart;
+    t.dueAt = toDueIso(plannedEnd || '');
+    t.plannedStart = plannedStart;
+    t.plannedEnd = plannedEnd;
+    t.planningStatus = plannedStart ? 'planned' : 'unplanned';
+    t.needsPlanning = !plannedStart;
     if (previousOwner !== assignedTo) addActivity({ projectId:t.projectId, text:`${t.title} assignée à ${teamName(assignedTo)}`, internalTag:TAGS.TASK_ASSIGN });
-    state.notifications.filter(n => n.taskId === id).forEach(n => { n.read = true; n.resolved = true; });
+    state.notifications.filter(n => n.taskId === id).forEach(n => {
+      n.read = true;
+      n.resolved = Boolean(plannedStart);
+    });
     planningTaskId = null;
-    persist(TAGS.PLAN_CONFIRM, 'Planification confirmée', { taskId:id, bucket:selected, assignedTo, scheduledFor, dueAt });
+    persist(TAGS.PLAN_CONFIRM, 'Planification confirmée', { taskId:id, bucket:selected, assignedTo, plannedStart, plannedEnd });
     render();
   });
 
