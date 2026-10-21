@@ -459,9 +459,20 @@ function taskProjectMatchesFilter(state, taskProjectId, filterId) {
   return taskProjectId === filterId || descendantIds(state, filterId).includes(taskProjectId);
 }
 
-function taskMatchesGantt(state, task) {
+function taskMatchesProfileScope(state, task) {
   if (!taskInScope(state, task)) return false;
-  if (ganttProfile !== 'all' && task.assignedTo !== ganttProfile) return false;
+  return ganttProfile === 'all' || task.assignedTo === ganttProfile;
+}
+
+function projectRelevantToGanttScope(state, project) {
+  if (!project) return false;
+  if (projectInScope(state, project) && (ganttProfile === 'all' || project.owner === ganttProfile)) return true;
+  const ids = new Set([project.id, ...descendantIds(state, project.id)]);
+  return (state?.tasks || []).some(task => ids.has(task.projectId) && taskMatchesProfileScope(state, task));
+}
+
+function taskMatchesGantt(state, task) {
+  if (!taskMatchesProfileScope(state, task)) return false;
   if (task.projectId) {
     const p = (state?.projects || []).find(item => item.id === task.projectId);
     if (p?.archived) return false;
@@ -577,14 +588,14 @@ export function renderGantt(state, labels = {}) {
 
   if (ganttProject !== 'all') {
     const selectedProject = (state?.projects || []).find(project => project.id === ganttProject);
-    if (!selectedProject || !projectInScope(state, selectedProject)) ganttProject = 'all';
+    if (!selectedProject || !projectRelevantToGanttScope(state, selectedProject)) ganttProject = 'all';
   }
   if (ganttSubproject !== 'all') {
     const selectedSubproject = (state?.projects || []).find(project => project.id === ganttSubproject);
     const compatibleWithProject = ganttProject === 'all'
       || selectedSubproject?.id === ganttProject
       || descendantIds(state, ganttProject).includes(selectedSubproject?.id);
-    if (!selectedSubproject || !selectedSubproject.parentProjectId || !projectInScope(state, selectedSubproject) || !compatibleWithProject) {
+    if (!selectedSubproject || !selectedSubproject.parentProjectId || !projectRelevantToGanttScope(state, selectedSubproject) || !compatibleWithProject) {
       ganttSubproject = 'all';
     }
   }
@@ -617,13 +628,13 @@ export function renderGantt(state, labels = {}) {
     .join('');
 
   const projectOptions = (state?.projects || [])
-    .filter(p => !p.archived && projectInScope(state,p))
+    .filter(p => !p.archived && projectRelevantToGanttScope(state,p))
     .sort((a,b) => String(a.name || '').localeCompare(String(b.name || ''),'fr'))
     .map(p => `<option value="${esc(p.id)}" ${ganttProject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)
     .join('');
 
   const subprojectOptions = (state?.projects || [])
-    .filter(p => !p.archived && p.parentProjectId && projectInScope(state,p))
+    .filter(p => !p.archived && p.parentProjectId && projectRelevantToGanttScope(state,p))
     .filter(p => ganttProject === 'all' || p.id === ganttProject || descendantIds(state, ganttProject).includes(p.id))
     .sort((a,b) => String(a.name || '').localeCompare(String(b.name || ''),'fr'))
     .map(p => `<option value="${esc(p.id)}" ${ganttSubproject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)
@@ -632,7 +643,7 @@ export function renderGantt(state, labels = {}) {
   const unplannedTasks = (state?.tasks || []).filter(task => taskMatchesGantt(state, task) && !taskInterval(task));
   const unplannedProjects = (state?.projects || []).filter(project =>
     !project.archived
-    && projectInScope(state, project)
+    && projectRelevantToGanttScope(state, project)
     && projectAllowedByFilter(state, project)
     && (ganttProfile === 'all' || project.owner === ganttProfile)
     && !projectHasExplicitDates(project)
