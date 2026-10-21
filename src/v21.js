@@ -4,6 +4,7 @@ const GANTT_KEY = 'speedarti-pilotage-v21-gantt';
 let profileMenuOpen = false;
 let planningMode = 'roadmap';
 let ganttScale = 'month';
+let ganttProfile = 'all';
 let ganttProject = 'all';
 let ganttSubproject = 'all';
 let ganttStatus = 'all';
@@ -15,6 +16,7 @@ try {
   const saved = JSON.parse(localStorage.getItem(GANTT_KEY) || '{}');
   if (saved.planningMode === 'gantt' || saved.planningMode === 'roadmap') planningMode = saved.planningMode;
   if (['week','month','year','n1','n2','n3'].includes(saved.ganttScale)) ganttScale = saved.ganttScale;
+  if (typeof saved.ganttProfile === 'string') ganttProfile = saved.ganttProfile;
   if (typeof saved.ganttProject === 'string') ganttProject = saved.ganttProject;
   if (typeof saved.ganttSubproject === 'string') ganttSubproject = saved.ganttSubproject;
   if (typeof saved.ganttStatus === 'string') ganttStatus = saved.ganttStatus;
@@ -31,7 +33,7 @@ function esc(value = '') {
 
 function persistGantt() {
   localStorage.setItem(GANTT_KEY, JSON.stringify({
-    planningMode, ganttScale, ganttProject, ganttSubproject, ganttStatus, ganttPriority, ganttSearch,
+    planningMode, ganttScale, ganttProfile, ganttProject, ganttSubproject, ganttStatus, ganttPriority, ganttSearch,
     ganttAnchor:ganttAnchor.toISOString()
   }));
 }
@@ -246,13 +248,25 @@ function descendantIds(state, projectId) {
   return ids;
 }
 
-export function projectProgress(state, project) {
+function clampProgress(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+export function automaticProjectProgress(state, project) {
   if (!project) return 0;
   const ids = new Set([project.id, ...descendantIds(state, project.id)]);
   const tasks = (state?.tasks || []).filter(t => ids.has(t.projectId));
   if (!tasks.length) return project.status === 'completed' ? 100 : 0;
   const total = tasks.reduce((sum, task) => sum + taskProgress(task), 0);
-  return Math.max(0, Math.min(100, Math.round(total / tasks.length)));
+  return clampProgress(total / tasks.length);
+}
+
+export function projectProgress(state, project) {
+  if (!project) return 0;
+  if (project.progressMode === 'manual') return clampProgress(project.manualProgress);
+  return automaticProjectProgress(state, project);
 }
 
 export function recalculateAutomaticProgress(state) {
@@ -260,9 +274,13 @@ export function recalculateAutomaticProgress(state) {
     task.progress = taskProgress(task);
   });
   (state?.projects || []).forEach(project => {
-    const progress = projectProgress(state, project);
-    project.progress = progress;
-    project.manualProgress = progress;
+    const automatic = automaticProjectProgress(state, project);
+    project.autoProgress = automatic;
+    if (!Number.isFinite(Number(project.manualProgress))) project.manualProgress = automatic;
+    project.progressMode = project.progressMode === 'manual' ? 'manual' : 'auto';
+    project.progress = project.progressMode === 'manual'
+      ? clampProgress(project.manualProgress)
+      : automatic;
   });
   return state;
 }
@@ -400,6 +418,17 @@ function barStyle(interval, range) {
 }
 
 function projectInterval(state, projectId) {
+  const project = (state?.projects || []).find(item => item.id === projectId);
+  const explicitStart = parseDate(project?.plannedStart);
+  const explicitEnd = parseDate(project?.plannedEnd);
+  if (explicitStart || explicitEnd) {
+    const start = explicitStart || new Date(explicitEnd);
+    const end = explicitEnd || new Date(explicitStart);
+    return start <= end
+      ? { start, end, source:'project' }
+      : { start:end, end:start, source:'project' };
+  }
+
   const ids = new Set([projectId, ...descendantIds(state, projectId)]);
   const intervals = (state?.tasks || [])
     .filter(task => ids.has(task.projectId))
@@ -408,7 +437,8 @@ function projectInterval(state, projectId) {
   if (!intervals.length) return null;
   return {
     start:new Date(Math.min(...intervals.map(item => item.start.getTime()))),
-    end:new Date(Math.max(...intervals.map(item => item.end.getTime())))
+    end:new Date(Math.max(...intervals.map(item => item.end.getTime()))),
+    source:'tasks'
   };
 }
 
@@ -431,6 +461,7 @@ function taskProjectMatchesFilter(state, taskProjectId, filterId) {
 
 function taskMatchesGantt(state, task) {
   if (!taskInScope(state, task)) return false;
+  if (ganttProfile !== 'all' && task.assignedTo !== ganttProfile) return false;
   if (task.projectId) {
     const p = (state?.projects || []).find(item => item.id === task.projectId);
     if (p?.archived) return false;
@@ -447,53 +478,71 @@ function taskMatchesGantt(state, task) {
   return true;
 }
 
-function renderBar(label, interval, range, progress, type, id = '') {
+function progressClass(progress) {
+  if (progress >= 100) return 'progress-done';
+  if (progress > 0) return 'progress-active';
+  return 'progress-zero';
+}
+
+function renderBar(label, interval, range, progress, type, id = '', options = {}) {
   const style = barStyle(interval, range);
   if (!style) return '<div class="v21-gantt-offrange">—</div>';
-  if (type === 'task') {
-    return `<div class="v21-gantt-bar task" data-gantt-task-bar="${esc(id)}" style="left:${style.left}%;width:${Math.max(style.width,1.2)}%" title="${esc(label)} · ${progress}%">
-      <span class="v21-gantt-fill" style="width:${progress}%"></span>
-      <i data-gantt-resize="start"></i>
-      <strong>${esc(label)}</strong>
-      <i data-gantt-resize="end"></i>
-    </div>`;
-  }
-  return `<div class="v21-gantt-bar project" style="left:${style.left}%;width:${Math.max(style.width,1.2)}%" title="${esc(label)} · ${progress}%"><span class="v21-gantt-fill" style="width:${progress}%"></span><strong>${progress}%</strong></div>`;
+  const manualClass = options.manual ? ' progress-manual' : '';
+  const editableClass = options.editable ? ' is-editable' : '';
+  const dataAttr = type === 'task'
+    ? `data-gantt-task-bar="${esc(id)}"`
+    : `data-gantt-project-bar="${esc(id)}"`;
+  const handles = options.editable
+    ? '<i data-gantt-resize="start" title="Modifier la date de début"></i><i data-gantt-resize="end" title="Modifier la date de fin"></i>'
+    : '';
+  const dateLabel = interval ? `${dateKey(interval.start)} → ${dateKey(interval.end)}` : '';
+  return `<div class="v21-gantt-bar ${type} ${progressClass(progress)}${manualClass}${editableClass}" ${dataAttr} style="left:${style.left}%;width:${Math.max(style.width,1.2)}%" title="${esc(label)} · ${dateLabel} · ${progress}%${options.manual ? ' manuel' : ''}">
+    <span class="v21-gantt-fill" style="width:${progress}%"></span>
+    ${handles}
+    <strong>${esc(label)} · ${progress}%</strong>
+  </div>`;
 }
 
 function renderProjectRows(state, project, range, depth = 0) {
   if (!projectInScope(state, project) || !projectAllowedByFilter(state, project)) return '';
+
   const tasks = (state?.tasks || []).filter(task => task.projectId === project.id && taskMatchesGantt(state, task));
-  const children = projectChildren(state, project.id)
-    .filter(child => !child.archived)
+  const childProjects = projectChildren(state, project.id).filter(child => !child.archived);
+  const children = childProjects
     .map(child => renderProjectRows(state, child, range, depth + 1))
     .filter(Boolean);
 
   const q = ganttSearch.trim().toLowerCase();
   const projectNameMatches = !q || String(project.name || '').toLowerCase().includes(q);
-  const taskConstraint = ganttStatus !== 'all' || ganttPriority !== 'all';
-  if (taskConstraint && !tasks.length && !children.length) return '';
+  const taskConstraint = ganttStatus !== 'all' || ganttPriority !== 'all' || ganttProfile !== 'all';
+  const profileProjectMatches = ganttProfile === 'all' || project.owner === ganttProfile || tasks.length > 0 || children.length > 0;
+  if (!profileProjectMatches) return '';
+  if (taskConstraint && !tasks.length && !children.length && project.owner !== ganttProfile && ganttProfile !== 'all') return '';
   if (q && !projectNameMatches && !tasks.length && !children.length) return '';
 
   const pProgress = projectProgress(state, project);
   const pInterval = projectInterval(state, project.id);
+  const manual = project.progressMode === 'manual';
+  const projectDatesEditable = pInterval?.source === 'project';
+  const intervalText = pInterval ? `${dateKey(pInterval.start)} → ${dateKey(pInterval.end)}` : 'Sans dates';
   let html = `<div class="v21-gantt-row project-row">
-    <div class="v21-gantt-label" style="--gantt-depth:${depth}">
+    <button type="button" class="v21-gantt-label v21-gantt-open" data-gantt-project-open="${esc(project.id)}" style="--gantt-depth:${depth}">
       <span class="v21-gantt-folder">▣</span>
-      <div><strong>${esc(project.name)}</strong><small>${esc((state.team || []).find(m => m.id === project.owner)?.name || 'Non attribué')} · ${pProgress}%</small></div>
-    </div>
-    <div class="v21-gantt-timeline-cell">${renderBar(project.name,pInterval,range,pProgress,'project')}</div>
+      <div><strong>${esc(project.name)}</strong><small>${esc((state.team || []).find(m => m.id === project.owner)?.name || 'Non attribué')} · ${pProgress}% · ${manual ? 'manuel' : 'auto'} · ${intervalText}</small></div>
+    </button>
+    <div class="v21-gantt-timeline-cell">${renderBar(project.name,pInterval,range,pProgress,'project',project.id,{ manual, editable:projectDatesEditable })}</div>
   </div>`;
 
   html += tasks.map(task => {
     const progress = taskProgress(task);
     const interval = taskInterval(task);
+    const intervalText = interval ? `${dateKey(interval.start)} → ${dateKey(interval.end)}` : 'À planifier';
     return `<div class="v21-gantt-row task-row-gantt">
-      <div class="v21-gantt-label" style="--gantt-depth:${depth + 1}">
+      <button type="button" class="v21-gantt-label v21-gantt-open" data-gantt-task-open="${esc(task.id)}" style="--gantt-depth:${depth + 1}">
         <span class="v21-gantt-task-dot">✓</span>
-        <div><strong>${esc(task.title)}</strong><small>${esc((state.team || []).find(m => m.id === task.assignedTo)?.name || 'Non attribué')} · ${progress}%</small></div>
-      </div>
-      <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id)}</div>
+        <div><strong>${esc(task.title)}</strong><small>${esc((state.team || []).find(m => m.id === task.assignedTo)?.name || 'Non attribué')} · ${progress}% · ${intervalText}</small></div>
+      </button>
+      <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id,{ editable:Boolean(interval) })}</div>
     </div>`;
   }).join('');
 
@@ -501,7 +550,14 @@ function renderProjectRows(state, project, range, depth = 0) {
   return html;
 }
 
+function projectHasExplicitDates(project) {
+  return Boolean(parseDate(project?.plannedStart) || parseDate(project?.plannedEnd));
+}
+
 export function renderGantt(state, labels = {}) {
+  const selectedIds = getSelectedProfileIds(state);
+  if (ganttProfile !== 'all' && !selectedIds.has(ganttProfile)) ganttProfile = 'all';
+
   if (ganttProject !== 'all') {
     const selectedProject = (state?.projects || []).find(project => project.id === ganttProject);
     if (!selectedProject || !projectInScope(state, selectedProject)) ganttProject = 'all';
@@ -515,25 +571,33 @@ export function renderGantt(state, labels = {}) {
       ganttSubproject = 'all';
     }
   }
+
   const range = rangeForScale();
   const ticks = ganttTicks(range);
   const roots = (state?.projects || [])
     .filter(project => !project.archived && !project.parentProjectId)
     .sort((a,b) => Number(a.treeSortOrder || 0) - Number(b.treeSortOrder || 0));
   const rows = roots.map(project => renderProjectRows(state, project, range, 0)).filter(Boolean).join('');
+
   const unassigned = (state?.tasks || []).filter(task => !task.projectId && taskMatchesGantt(state, task));
   const unassignedRows = unassigned.map(task => {
     const progress = taskProgress(task);
+    const interval = taskInterval(task);
+    const intervalText = interval ? `${dateKey(interval.start)} → ${dateKey(interval.end)}` : 'À planifier';
     return `<div class="v21-gantt-row task-row-gantt">
-      <div class="v21-gantt-label"><span class="v21-gantt-task-dot">✓</span><div><strong>${esc(task.title)}</strong><small>Sans projet · ${esc((state.team || []).find(m => m.id === task.assignedTo)?.name || 'Non attribué')} · ${progress}%</small></div></div>
-      <div class="v21-gantt-timeline-cell">${renderBar(task.title,taskInterval(task),range,progress,'task',task.id)}</div>
+      <button type="button" class="v21-gantt-label v21-gantt-open" data-gantt-task-open="${esc(task.id)}">
+        <span class="v21-gantt-task-dot">✓</span><div><strong>${esc(task.title)}</strong><small>Sans projet · ${esc((state.team || []).find(m => m.id === task.assignedTo)?.name || 'Non attribué')} · ${progress}% · ${intervalText}</small></div>
+      </button>
+      <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id,{ editable:Boolean(interval) })}</div>
     </div>`;
   }).join('');
 
   const totalDays = dateDiffDays(range.start, addDays(range.end,1));
-  const minWidth = range.unit === 'day'
-    ? Math.max(720, ticks.length * 48)
-    : 900;
+  const minWidth = range.unit === 'day' ? Math.max(720, ticks.length * 48) : 900;
+
+  const profileOptions = getSelectedMembers(state)
+    .map(member => `<option value="${esc(member.id)}" ${ganttProfile === member.id ? 'selected' : ''}>${esc(member.name)}</option>`)
+    .join('');
 
   const projectOptions = (state?.projects || [])
     .filter(p => !p.archived && projectInScope(state,p))
@@ -548,10 +612,21 @@ export function renderGantt(state, labels = {}) {
     .map(p => `<option value="${esc(p.id)}" ${ganttSubproject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)
     .join('');
 
+  const unplannedTasks = (state?.tasks || []).filter(task => taskMatchesGantt(state, task) && !taskInterval(task));
+  const unplannedProjects = (state?.projects || []).filter(project =>
+    !project.archived
+    && projectInScope(state, project)
+    && projectAllowedByFilter(state, project)
+    && (ganttProfile === 'all' || project.owner === ganttProfile)
+    && !projectHasExplicitDates(project)
+    && !projectInterval(state, project.id)
+  );
+
   return `
     <section class="v21-gantt-shell">
       <div class="v21-gantt-toolbar">
         <div class="v21-gantt-filters">
+          <select id="v21GanttProfile"><option value="all">Tous les profils affichés</option>${profileOptions}</select>
           <select id="v21GanttProject"><option value="all">Tous les projets</option>${projectOptions}</select>
           <select id="v21GanttSubproject"><option value="all">Tous les sous-projets</option>${subprojectOptions}</select>
           <input id="v21GanttSearch" value="${esc(ganttSearch)}" placeholder="Filtrer une tâche…" />
@@ -571,16 +646,14 @@ export function renderGantt(state, labels = {}) {
           <button type="button" data-v21-gantt-nav="-1">←</button>
           <button type="button" data-v21-gantt-today>Aujourd’hui</button>
           <button type="button" data-v21-gantt-nav="1">→</button>
-          <strong>${range.unit === 'day'
-            ? `${dateKey(range.start)} → ${dateKey(range.end)}`
-            : `Année ${range.year}`}</strong>
+          <strong>${range.unit === 'day' ? `${dateKey(range.start)} → ${dateKey(range.end)}` : `Année ${range.year}`}</strong>
         </div>
       </div>
 
       <div class="v21-gantt-scroll">
         <div class="v21-gantt-board" style="--gantt-min-width:${minWidth}px;--gantt-columns:${ticks.length}">
           <div class="v21-gantt-header-row">
-            <div class="v21-gantt-label"><strong>Projet / tâche</strong><small>Progression automatique</small></div>
+            <div class="v21-gantt-label"><strong>Projet / tâche</strong><small>Dates exactes · progression auto ou manuelle</small></div>
             <div class="v21-gantt-timeline-cell v21-gantt-ticks">
               ${ticks.map(tick => `<span>${esc(tick.label)}</span>`).join('')}
             </div>
@@ -591,7 +664,17 @@ export function renderGantt(state, labels = {}) {
           </div>
         </div>
       </div>
-      <div class="v21-gantt-help">Glisse une barre de tâche pour la déplacer. Tire ses poignées gauche/droite pour modifier les dates. Les barres projet sont calculées automatiquement.</div>
+
+      ${unplannedTasks.length || unplannedProjects.length ? `
+        <div class="v21-gantt-unplanned">
+          <div><strong>À planifier</strong><small>Éléments sans dates exactes</small></div>
+          <div class="v21-gantt-unplanned-list">
+            ${unplannedProjects.map(project => `<button type="button" data-gantt-project-open="${esc(project.id)}">▣ ${esc(project.name)} <span>Ajouter des dates</span></button>`).join('')}
+            ${unplannedTasks.map(task => `<button type="button" data-gantt-task-open="${esc(task.id)}">✓ ${esc(task.title)} <span>Ajouter des dates</span></button>`).join('')}
+          </div>
+        </div>` : ''}
+
+      <div class="v21-gantt-help">Clic = ouvrir/modifier. Glisser une barre datée = déplacer les dates. Tirer une poignée = modifier le début ou la fin. Les projets sans dates explicites restent calculés depuis leurs tâches.</div>
     </section>`;
 }
 
@@ -601,7 +684,84 @@ function shiftAnchor(direction) {
   else ganttAnchor = new Date(ganttAnchor.getFullYear() + direction, ganttAnchor.getMonth(), 1, 12);
 }
 
-export function bindGantt(state, rerender, onTaskDates) {
+function bindBarPointer(bar, state, body, handlers, type) {
+  bar.addEventListener('pointerdown', event => {
+    if (event.button != null && event.button !== 0) return;
+    const id = type === 'task' ? bar.dataset.ganttTaskBar : bar.dataset.ganttProjectBar;
+    const item = type === 'task'
+      ? (state?.tasks || []).find(entry => entry.id === id)
+      : (state?.projects || []).find(entry => entry.id === id);
+    const interval = type === 'task' ? taskInterval(item) : projectInterval(state, id);
+    const timeline = bar.closest('.v21-gantt-timeline-cell');
+    const handle = event.target.closest('[data-gantt-resize]');
+    const mode = handle?.dataset.ganttResize || 'move';
+    const editable = bar.classList.contains('is-editable');
+
+    if (!item || !timeline || !body) return;
+    if (!interval || !editable) {
+      if (mode === 'move') (type === 'task' ? handlers.onTaskOpen : handlers.onProjectOpen)?.(id);
+      return;
+    }
+
+    const startX = event.clientX;
+    const timelineWidth = timeline.getBoundingClientRect().width || 1;
+    const totalDays = Math.max(1, Number(body.dataset.totalDays || 1));
+    let deltaDays = 0;
+    let moved = false;
+
+    event.preventDefault();
+    bar.setPointerCapture?.(event.pointerId);
+
+    const move = moveEvent => {
+      const dx = moveEvent.clientX - startX;
+      const nextDelta = Math.round((dx / timelineWidth) * totalDays);
+      if (Math.abs(dx) >= 4) moved = true;
+      deltaDays = nextDelta;
+      const pxPerDay = timelineWidth / totalDays;
+      bar.classList.toggle('is-dragging', moved);
+      bar.style.transform = moved ? `translateX(${deltaDays * pxPerDay}px)` : '';
+    };
+
+    const finish = async () => {
+      bar.removeEventListener('pointermove', move);
+      bar.removeEventListener('pointerup', finish);
+      bar.removeEventListener('pointercancel', finish);
+      bar.classList.remove('is-dragging');
+      bar.style.transform = '';
+
+      if (!moved || !deltaDays) {
+        if (mode === 'move') (type === 'task' ? handlers.onTaskOpen : handlers.onProjectOpen)?.(id);
+        return;
+      }
+
+      let start = new Date(interval.start);
+      let end = new Date(interval.end);
+      if (mode === 'start') start = addDays(start, deltaDays);
+      else if (mode === 'end') end = addDays(end, deltaDays);
+      else {
+        start = addDays(start, deltaDays);
+        end = addDays(end, deltaDays);
+      }
+      if (start > end) {
+        if (mode === 'start') start = new Date(end);
+        else end = new Date(start);
+      }
+
+      if (type === 'task') {
+        await handlers.onTaskDates?.(id, dateKey(start), dateKey(end), mode);
+      } else {
+        await handlers.onProjectDates?.(id, dateKey(start), dateKey(end), mode);
+      }
+    };
+
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', finish, { once:true });
+    bar.addEventListener('pointercancel', finish, { once:true });
+  });
+}
+
+export function bindGantt(state, rerender, handlers = {}) {
+  document.querySelector('#v21GanttProfile')?.addEventListener('change', e => { ganttProfile=e.target.value; persistGantt(); rerender(); });
   document.querySelector('#v21GanttProject')?.addEventListener('change', e => {
     ganttProject=e.target.value;
     if (ganttSubproject !== 'all' && ganttProject !== 'all' && !descendantIds(state, ganttProject).includes(ganttSubproject)) {
@@ -638,60 +798,10 @@ export function bindGantt(state, rerender, onTaskDates) {
     rerender();
   });
 
-  document.querySelectorAll('[data-gantt-task-bar]').forEach(bar => {
-    bar.addEventListener('pointerdown', event => {
-      if (event.button != null && event.button !== 0) return;
-      const taskId = bar.dataset.ganttTaskBar;
-      const task = (state?.tasks || []).find(item => item.id === taskId);
-      const interval = taskInterval(task);
-      const body = bar.closest('.v21-gantt-body') || document.querySelector('[data-v21-gantt-timeline]');
-      const timeline = bar.closest('.v21-gantt-timeline-cell');
-      if (!task || !interval || !body || !timeline) return;
+  document.querySelectorAll('[data-gantt-task-open]').forEach(button => button.addEventListener('click', () => handlers.onTaskOpen?.(button.dataset.ganttTaskOpen)));
+  document.querySelectorAll('[data-gantt-project-open]').forEach(button => button.addEventListener('click', () => handlers.onProjectOpen?.(button.dataset.ganttProjectOpen)));
 
-      const handle = event.target.closest('[data-gantt-resize]');
-      const mode = handle?.dataset.ganttResize || 'move';
-      const startX = event.clientX;
-      const timelineWidth = timeline.getBoundingClientRect().width || 1;
-      const totalDays = Math.max(1, Number(body.dataset.totalDays || 1));
-      let deltaDays = 0;
-
-      event.preventDefault();
-      bar.classList.add('is-dragging');
-      bar.setPointerCapture?.(event.pointerId);
-
-      const move = moveEvent => {
-        const dx = moveEvent.clientX - startX;
-        deltaDays = Math.round((dx / timelineWidth) * totalDays);
-        const pxPerDay = timelineWidth / totalDays;
-        bar.style.transform = `translateX(${deltaDays * pxPerDay}px)`;
-      };
-
-      const finish = async () => {
-        bar.removeEventListener('pointermove', move);
-        bar.removeEventListener('pointerup', finish);
-        bar.removeEventListener('pointercancel', finish);
-        bar.classList.remove('is-dragging');
-        bar.style.transform = '';
-        if (!deltaDays) return;
-
-        let start = new Date(interval.start);
-        let end = new Date(interval.end);
-        if (mode === 'start') start = addDays(start, deltaDays);
-        else if (mode === 'end') end = addDays(end, deltaDays);
-        else {
-          start = addDays(start, deltaDays);
-          end = addDays(end, deltaDays);
-        }
-        if (start > end) {
-          if (mode === 'start') start = new Date(end);
-          else end = new Date(start);
-        }
-        await onTaskDates?.(taskId, dateKey(start), dateKey(end), mode);
-      };
-
-      bar.addEventListener('pointermove', move);
-      bar.addEventListener('pointerup', finish, { once:true });
-      bar.addEventListener('pointercancel', finish, { once:true });
-    });
-  });
+  const body = document.querySelector('[data-v21-gantt-timeline]');
+  document.querySelectorAll('[data-gantt-task-bar]').forEach(bar => bindBarPointer(bar, state, body, handlers, 'task'));
+  document.querySelectorAll('[data-gantt-project-bar]').forEach(bar => bindBarPointer(bar, state, body, handlers, 'project'));
 }
