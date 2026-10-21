@@ -521,7 +521,7 @@ function renderBar(label, interval, range, progress, type, id = '', options = {}
 }
 
 function renderProjectRows(state, project, range, depth = 0) {
-  if (!projectInScope(state, project) || !projectAllowedByFilter(state, project)) return '';
+  if (!projectAllowedByFilter(state, project)) return '';
 
   const tasks = (state?.tasks || []).filter(task => task.projectId === project.id && taskMatchesGantt(state, task));
   const childProjects = projectChildren(state, project.id).filter(child => !child.archived);
@@ -531,10 +531,10 @@ function renderProjectRows(state, project, range, depth = 0) {
 
   const q = ganttSearch.trim().toLowerCase();
   const projectNameMatches = !q || String(project.name || '').toLowerCase().includes(q);
-  const taskConstraint = ganttStatus !== 'all' || ganttPriority !== 'all' || ganttProfile !== 'all';
-  const profileProjectMatches = ganttProfile === 'all' || project.owner === ganttProfile || tasks.length > 0 || children.length > 0;
+  const ownerMatchesGlobalScope = projectInScope(state, project);
+  const ownerMatchesLocalProfile = ganttProfile === 'all' ? ownerMatchesGlobalScope : project.owner === ganttProfile;
+  const profileProjectMatches = ownerMatchesLocalProfile || tasks.length > 0 || children.length > 0;
   if (!profileProjectMatches) return '';
-  if (taskConstraint && !tasks.length && !children.length && project.owner !== ganttProfile && ganttProfile !== 'all') return '';
   if (q && !projectNameMatches && !tasks.length && !children.length) return '';
 
   const pProgress = projectProgress(state, project);
