@@ -484,6 +484,23 @@ function progressClass(progress) {
   return 'progress-zero';
 }
 
+function projectMemberIdsForGantt(project) {
+  return [...new Set([...(Array.isArray(project?.members) ? project.members : []), project?.owner].filter(Boolean))];
+}
+
+function canEditTaskInGantt(state, task) {
+  if (!task || !state?.currentUser?.id) return false;
+  if (state.currentUser.role === 'admin') return true;
+  if (task.assignedTo === state.currentUser.id) return true;
+  const project = (state.projects || []).find(item => item.id === task.projectId);
+  return Boolean(project && projectMemberIdsForGantt(project).includes(state.currentUser.id));
+}
+
+function canEditProjectInGantt(state, project) {
+  if (!project || !state?.currentUser?.id) return false;
+  return state.currentUser.role === 'admin' || project.owner === state.currentUser.id;
+}
+
 function renderBar(label, interval, range, progress, type, id = '', options = {}) {
   const style = barStyle(interval, range);
   if (!style) return '<div class="v21-gantt-offrange">—</div>';
@@ -523,7 +540,7 @@ function renderProjectRows(state, project, range, depth = 0) {
   const pProgress = projectProgress(state, project);
   const pInterval = projectInterval(state, project.id);
   const manual = project.progressMode === 'manual';
-  const projectDatesEditable = pInterval?.source === 'project';
+  const projectDatesEditable = pInterval?.source === 'project' && canEditProjectInGantt(state, project);
   const intervalText = pInterval ? `${dateKey(pInterval.start)} → ${dateKey(pInterval.end)}` : 'Sans dates';
   let html = `<div class="v21-gantt-row project-row">
     <button type="button" class="v21-gantt-label v21-gantt-open" data-gantt-project-open="${esc(project.id)}" style="--gantt-depth:${depth}">
@@ -542,7 +559,7 @@ function renderProjectRows(state, project, range, depth = 0) {
         <span class="v21-gantt-task-dot">✓</span>
         <div><strong>${esc(task.title)}</strong><small>${esc((state.team || []).find(m => m.id === task.assignedTo)?.name || 'Non attribué')} · ${progress}% · ${intervalText}</small></div>
       </button>
-      <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id,{ editable:Boolean(interval) })}</div>
+      <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id,{ editable:Boolean(interval) && canEditTaskInGantt(state, task) })}</div>
     </div>`;
   }).join('');
 
@@ -588,7 +605,7 @@ export function renderGantt(state, labels = {}) {
       <button type="button" class="v21-gantt-label v21-gantt-open" data-gantt-task-open="${esc(task.id)}">
         <span class="v21-gantt-task-dot">✓</span><div><strong>${esc(task.title)}</strong><small>Sans projet · ${esc((state.team || []).find(m => m.id === task.assignedTo)?.name || 'Non attribué')} · ${progress}% · ${intervalText}</small></div>
       </button>
-      <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id,{ editable:Boolean(interval) })}</div>
+      <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id,{ editable:Boolean(interval) && canEditTaskInGantt(state, task) })}</div>
     </div>`;
   }).join('');
 
