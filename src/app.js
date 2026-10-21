@@ -2357,8 +2357,9 @@ function moveTask(taskId, bucket) {
   if (!t) return;
   const previous = t.planningBucket;
   t.planningBucket = bucket;
-  t.planningStatus = 'planned';
-  t.needsPlanning = false;
+  const hasExactDates = Boolean(t.plannedStart || t.scheduledFor);
+  t.planningStatus = hasExactDates ? 'planned' : 'unplanned';
+  t.needsPlanning = !hasExactDates;
   t.sortOrder = Date.now();
   addActivity({ projectId: t.projectId, text: `${t.title} : ${planningLabels[previous]} → ${planningLabels[bucket]}`, internalTag: TAGS.PLAN_MOVE });
   persist(TAGS.PLAN_MOVE, 'Tâche déplacée dans la roadmap', { taskId, previous, bucket });
