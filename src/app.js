@@ -261,8 +261,8 @@ function toDueIso(value) { return value ? dateAtHourIso(value, 18) : null; }
 function personInitials(name = '') { return name.split(/\s|-/).filter(Boolean).slice(0,2).map(x => x[0]).join('').toUpperCase(); }
 function isAdmin() { return state.currentUser?.role === 'admin'; }
 function adminMemberId() {
-  return state.team.find(m => m.accessRole === 'admin')?.id
-    || state.team.find(m => m.id === 'u-thibault')?.id
+  return state.team.find(m => m.id === 'u-thibault' && m.accessRole === 'admin')?.id
+    || state.team.find(m => m.accessRole === 'admin')?.id
     || null;
 }
 function memberIdFromIdentity(value) {
@@ -356,6 +356,10 @@ function ensureRuntimeState() {
     if (!('parentProjectId' in p)) p.parentProjectId = null;
     if (!Number.isFinite(Number(p.treeSortOrder))) p.treeSortOrder = (index + 1) * 1000;
     if (!Number.isFinite(Number(p.manualProgress))) p.manualProgress = Number(p.progress || 0);
+    if (!Number.isFinite(Number(p.autoProgress))) p.autoProgress = Number(p.progress || 0);
+    p.progressMode = p.progressMode === 'manual' ? 'manual' : 'auto';
+    if (!('plannedStart' in p)) p.plannedStart = null;
+    if (!('plannedEnd' in p)) p.plannedEnd = null;
   });
   state.notifications = state.notifications.filter(n => !(n.type === 'approval_required' && !n.changeRequestId && !n.projectId));
   state.notifications.forEach(n => {
@@ -1258,11 +1262,11 @@ function renderProjectDetail(id) {
     ${p.archived ? '<div class="archive-banner"><strong>Projet archivé</strong><span>Il reste consultable, mais n’apparaît plus dans le pilotage actif.</span></div>' : ''}
 
     <div class="project-detail-head">
-      <div>${statusBadge(p.status)} ${priorityBadge(p.priority)} <span class="owner-pill">${esc(teamName(p.owner))}</span><span class="project-auto-progress-badge">Progression auto</span></div>
+      <div>${statusBadge(p.status)} ${priorityBadge(p.priority)} <span class="owner-pill">${esc(teamName(p.owner))}</span><span class="project-auto-progress-badge ${p.progressMode === 'manual' ? 'manual' : ''}">${p.progressMode === 'manual' ? 'Progression manuelle' : 'Progression auto'}</span></div>
       <strong>${progress} %</strong>
     </div>
     <div class="progress large"><i style="width:${progress}%"></i></div>
-    <div class="project-progress-caption">${subtree.done}/${subtree.total} tâches terminées dans le projet et son arborescence</div>
+    <div class="project-progress-caption">${subtree.done}/${subtree.total} tâches terminées dans le projet et son arborescence${p.progressMode === 'manual' ? ` · calcul automatique : ${V21.automaticProjectProgress(state,p)} %` : ''}</div>
 
     ${quickAdd}
 
@@ -1979,8 +1983,9 @@ function renderTaskModal() {
   const priority = existing?.priority || 'medium';
   const status = existing?.status || 'todo';
   const bucket = existing?.planningBucket || 'this_week';
-  const scheduled = existing?.scheduledFor || (!existing && currentPage === 'today' ? currentDateKey() : '');
-  const due = dateKey(existing?.dueAt);
+  const plannedStart = existing?.plannedStart || existing?.scheduledFor || (!existing && currentPage === 'today' ? currentDateKey() : '');
+  const plannedEnd = existing?.plannedEnd || dateKey(existing?.dueAt) || plannedStart || '';
+
   return `<div class="modal-backdrop" id="taskModalBackdrop"></div><div class="modal-card form-modal" role="dialog" aria-modal="true">
     <header><div><small>${existing ? 'MODIFIER LA TÂCHE' : 'NOUVELLE TÂCHE'}</small><h2>${existing ? esc(existing.title) : 'Ajouter une tâche'}</h2></div><button class="icon-btn" id="closeTaskModal">×</button></header>
     ${existing?.sourceIdeaId ? `<button class="task-origin-idea" data-open-idea-origin="${esc(existing.sourceIdeaId)}">💡 Origine : idée SpeedArti →</button>` : ''}
@@ -1992,8 +1997,9 @@ function renderTaskModal() {
       <label class="form-field"><span>État</span><select id="taskStatus">${Object.entries(statusLabels).map(([value,label]) => `<option value="${value}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <div class="form-field form-field-full"><span>Progression automatique</span>${V21.renderTaskProgress(existing || { status }, false)}<small>0 % tant que la tâche n’est pas terminée · 100 % une fois terminée.</small></div>
       <label class="form-field"><span>Période Roadmap</span><select id="taskPlanning">${['backlog','this_week','this_month','next_3_months','later'].map(value => `<option value="${value}" ${value === bucket ? 'selected' : ''}>${planningLabels[value]}</option>`).join('')}</select></label>
-      <label class="form-field"><span>Jour prévu</span><input id="taskScheduledFor" type="date" value="${esc(scheduled)}" /></label>
-      <label class="form-field"><span>Échéance</span><input id="taskDueAt" type="date" value="${esc(due)}" /></label>
+      <label class="form-field"><span>Date de début</span><input id="taskPlannedStart" type="date" value="${esc(plannedStart)}" /></label>
+      <label class="form-field"><span>Date de fin</span><input id="taskPlannedEnd" type="date" value="${esc(plannedEnd)}" /></label>
+      <div class="form-field form-field-full"><small>Les dates sont optionnelles. Sans date, la tâche reste « À planifier ». Une tâche sur une seule journée peut avoir la même date de début et de fin.</small></div>
     </div>
     <footer><button class="secondary-btn" id="cancelTaskModal">Annuler</button><button class="primary-btn" id="saveTask">${existing ? 'Enregistrer' : 'Ajouter la tâche'}</button></footer>
   </div>`;
@@ -2005,8 +2011,12 @@ function renderProjectModal() {
   const owner = existing?.owner || parent?.owner || state.currentUser.id;
   const priority = existing?.priority || 'medium';
   const status = existing?.status || 'in_progress';
-  const hasChildren = existing ? projectHasChildren(existing.id) : false;
-  const progress = Number(existing?.progress || 0);
+  const autoProgress = existing ? V21.automaticProjectProgress(state, existing) : 0;
+  const progressMode = existing?.progressMode === 'manual' ? 'manual' : 'auto';
+  const manualProgress = Math.max(0, Math.min(100, Number(existing?.manualProgress ?? autoProgress)));
+  const effectiveProgress = progressMode === 'manual' ? manualProgress : autoProgress;
+  const plannedStart = existing?.plannedStart || '';
+  const plannedEnd = existing?.plannedEnd || '';
   const defaultMembers = existing
     ? projectMemberIds(existing)
     : parent
@@ -2052,11 +2062,31 @@ function renderProjectModal() {
       <label class="form-field"><span>Priorité</span><select id="projectPriority">${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}" ${value === priority ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <label class="form-field"><span>État</span><select id="projectStatus">${Object.entries(statusLabels).filter(([value]) => existing || value !== 'completed').map(([value,label]) => `<option value="${value}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
 
+      <label class="form-field"><span>Date de début</span><input id="projectPlannedStart" type="date" value="${esc(plannedStart)}" /></label>
+      <label class="form-field"><span>Date de fin</span><input id="projectPlannedEnd" type="date" value="${esc(plannedEnd)}" /></label>
+
       <div class="form-field form-field-full range-field range-field-automatic">
-        <span>Progression <output>${progress} %</output></span>
-        <div class="progress large"><i style="width:${progress}%"></i></div>
-        <small>Calcul automatique à partir des tâches du projet et de ses sous-projets. La valeur n’est jamais saisie manuellement.</small>
+        <span>Progression actuelle <output>${effectiveProgress} %</output></span>
+        <div class="progress large"><i style="width:${effectiveProgress}%"></i></div>
+        <small>Calcul automatique réel : <strong>${autoProgress} %</strong> à partir de toutes les tâches du projet et de ses sous-projets.</small>
       </div>
+
+      ${isAdmin() ? `
+        <label class="form-field">
+          <span>Mode de progression</span>
+          <select id="projectProgressMode">
+            <option value="auto" ${progressMode === 'auto' ? 'selected' : ''}>Automatique</option>
+            <option value="manual" ${progressMode === 'manual' ? 'selected' : ''}>Manuelle</option>
+          </select>
+        </label>
+        <label class="form-field">
+          <span>Progression manuelle (%)</span>
+          <input id="projectManualProgress" type="number" min="0" max="100" step="1" value="${manualProgress}" ${progressMode === 'manual' ? '' : 'disabled'} />
+        </label>
+        <div class="form-field form-field-full"><small>En mode manuel, la valeur automatique continue d’être calculée en arrière-plan. Revenir sur « Automatique » restaure immédiatement le vrai pourcentage calculé.</small></div>`
+        : `
+        <input id="projectProgressMode" type="hidden" value="${progressMode}" />
+        <input id="projectManualProgress" type="hidden" value="${manualProgress}" />`}
 
       <label class="form-field form-field-full"><span>Blocage actuel</span><input id="projectBlocker" type="text" value="${esc(existing?.blocker || '')}" placeholder="Laisser vide s’il n’y a aucun blocage" maxlength="180" /></label>
       <label class="form-field form-field-full"><span>Prochaine action</span><input id="projectNextAction" type="text" value="${esc(existing?.nextAction || '')}" placeholder="Ex. Définir le cahier fonctionnel" maxlength="160" /></label>
@@ -2457,13 +2487,27 @@ function createTaskFromForm() {
     document.querySelector('#taskTitle')?.focus();
     return;
   }
+
   const projectId = document.querySelector('#taskProject')?.value || null;
   const assignedTo = document.querySelector('#taskOwner')?.value || state.currentUser.id;
   const priority = document.querySelector('#taskPriority')?.value || 'medium';
   const status = document.querySelector('#taskStatus')?.value || 'todo';
   const planningBucket = document.querySelector('#taskPlanning')?.value || 'backlog';
-  const scheduledFor = document.querySelector('#taskScheduledFor')?.value || null;
-  const dueAt = toDueIso(document.querySelector('#taskDueAt')?.value || '');
+
+  let plannedStart = document.querySelector('#taskPlannedStart')?.value || null;
+  let plannedEnd = document.querySelector('#taskPlannedEnd')?.value || null;
+  if (plannedStart && !plannedEnd) plannedEnd = plannedStart;
+  if (!plannedStart && plannedEnd) plannedStart = plannedEnd;
+  if (plannedStart && plannedEnd && plannedEnd < plannedStart) {
+    window.alert('La date de fin de la tâche ne peut pas être avant la date de début.');
+    document.querySelector('#taskPlannedEnd')?.focus();
+    return;
+  }
+
+  const scheduledFor = plannedStart;
+  const dueAt = toDueIso(plannedEnd || '');
+  const planningStatus = plannedStart ? 'planned' : 'unplanned';
+  const needsPlanning = !plannedStart;
 
   if (!taskAssigneeAllowed(projectId, assignedTo)) {
     window.alert(projectId
@@ -2478,18 +2522,20 @@ function createTaskFromForm() {
     if (!existing) return;
     const oldOwner = existing.assignedTo;
     const oldProject = existing.projectId;
-    const oldScheduledFor = existing.scheduledFor || null;
-    const oldDueAt = existing.dueAt || null;
+    const oldPlannedStart = existing.plannedStart || null;
+    const oldPlannedEnd = existing.plannedEnd || null;
+
     Object.assign(existing, {
-      title, projectId, assignedTo, priority, status, planningBucket, scheduledFor, dueAt,
-      plannedStart: scheduledFor || dateKey(dueAt) || null,
-      plannedEnd: dateKey(dueAt) || scheduledFor || null,
-      planningStatus: 'planned', needsPlanning: false, sortOrder: existing.sortOrder || Date.now(),
+      title, projectId, assignedTo, priority, status, planningBucket,
+      scheduledFor, dueAt, plannedStart, plannedEnd, planningStatus, needsPlanning,
+      sortOrder: existing.sortOrder || Date.now(),
       completedAt: status === 'completed' ? (existing.completedAt || new Date().toISOString()) : null,
       updatedAt: new Date().toISOString()
     });
+
     V21.recalculateAutomaticProgress(state);
     addActivity({ projectId, taskId:existing.id, text: `Tâche modifiée : ${title}`, internalTag: TAGS.TASK_EDIT });
+
     if (oldOwner !== assignedTo) {
       addActivity({ projectId, text: `${title} assignée à ${teamName(assignedTo)}`, internalTag: TAGS.TASK_ASSIGN });
       if (assignedTo !== state.currentUser.id) {
@@ -2501,19 +2547,27 @@ function createTaskFromForm() {
         });
       }
     }
-    if (oldScheduledFor !== scheduledFor || oldDueAt !== dueAt) addActivity({ projectId, text: `Planification mise à jour : ${title}`, internalTag: TAGS.TASK_SCHEDULE });
-    persist(TAGS.TASK_EDIT, 'Tâche modifiée', { taskId: existing.id, oldProject, projectId, assignedTo, planningBucket, scheduledFor, dueAt });
+
+    if (oldPlannedStart !== plannedStart || oldPlannedEnd !== plannedEnd) {
+      addActivity({ projectId, text: `Planification mise à jour : ${title}`, internalTag: TAGS.TASK_SCHEDULE });
+    }
+
+    persist(TAGS.TASK_EDIT, 'Tâche modifiée', {
+      taskId: existing.id, oldProject, projectId, assignedTo, planningBucket,
+      plannedStart, plannedEnd, planningStatus
+    });
   } else {
     const newTask = {
-      id: crypto.randomUUID(), title, projectId, assignedTo, status, priority, scheduledFor, dueAt,
-      plannedStart: scheduledFor || dateKey(dueAt) || null,
-      plannedEnd: dateKey(dueAt) || scheduledFor || null,
-      planningStatus: 'planned', planningBucket, needsPlanning: false, sortOrder: Date.now(),
-      sourceType: 'manual', createdAt: new Date().toISOString(), completedAt: status === 'completed' ? new Date().toISOString() : null
+      id: crypto.randomUUID(), title, projectId, assignedTo, status, priority,
+      scheduledFor, dueAt, plannedStart, plannedEnd, planningStatus, planningBucket, needsPlanning,
+      sortOrder: Date.now(), sourceType: 'manual', createdAt: new Date().toISOString(),
+      completedAt: status === 'completed' ? new Date().toISOString() : null
     };
+
     state.tasks.push(newTask);
     V21.recalculateAutomaticProgress(state);
     addActivity({ projectId, taskId:newTask.id, text: `Nouvelle tâche créée : ${title} · ${teamName(assignedTo)}`, internalTag: TAGS.TASK_CREATE });
+
     if (assignedTo !== state.currentUser.id) {
       upsertNotification({
         recipientId:assignedTo, severity:'info', type:'task_assignment',
@@ -2522,8 +2576,13 @@ function createTaskFromForm() {
         groupKey:`task-assignment:${newTask.id}:${assignedTo}`, internalTag:TAGS.NOTIF_ASSIGNMENT
       });
     }
-    persist(TAGS.TASK_CREATE, 'Tâche créée manuellement', { taskId: newTask.id, projectId, assignedTo, planningBucket, scheduledFor, dueAt });
+
+    persist(TAGS.TASK_CREATE, 'Tâche créée manuellement', {
+      taskId:newTask.id, projectId, assignedTo, planningBucket,
+      plannedStart, plannedEnd, planningStatus
+    });
   }
+
   taskModalOpen = false;
   taskModalProjectId = null;
   taskEditId = null;
@@ -2570,35 +2629,47 @@ function createProjectFromForm() {
   const blocker = document.querySelector('#projectBlocker')?.value.trim() || '';
   const nextAction = document.querySelector('#projectNextAction')?.value.trim() || 'À définir';
 
+  let plannedStart = document.querySelector('#projectPlannedStart')?.value || null;
+  let plannedEnd = document.querySelector('#projectPlannedEnd')?.value || null;
+  if (plannedStart && !plannedEnd) plannedEnd = plannedStart;
+  if (!plannedStart && plannedEnd) plannedStart = plannedEnd;
+  if (plannedStart && plannedEnd && plannedEnd < plannedStart) {
+    window.alert('La date de fin du projet ne peut pas être avant la date de début.');
+    document.querySelector('#projectPlannedEnd')?.focus();
+    return;
+  }
+
+  const requestedMode = document.querySelector('#projectProgressMode')?.value === 'manual' ? 'manual' : 'auto';
+  const requestedManual = Math.max(0, Math.min(100, Number(document.querySelector('#projectManualProgress')?.value || 0)));
+
   if (projectEditId) {
     const existing = project(projectEditId);
     if (!existing) return;
 
-    const hasChildren = projectHasChildren(existing.id);
-    const progress = projectEffectiveProgress(existing);
+    const automaticProgress = V21.automaticProjectProgress(state, existing);
+    const progressMode = isAdmin() ? requestedMode : (existing.progressMode === 'manual' ? 'manual' : 'auto');
+    const manualProgress = isAdmin() ? requestedManual : Number(existing.manualProgress ?? automaticProgress);
+    const progress = progressMode === 'manual' ? manualProgress : automaticProgress;
     const oldOwner = existing.owner;
     const oldMembers = projectMemberIds(existing);
     const members = selectedProjectMembers(owner, oldMembers);
-    const oldProgress = Number(existing.progress || 0);
     const requestedCompletion = status === 'completed' && existing.status !== 'completed';
     const savedStatus = requestedCompletion ? existing.status : status;
 
     Object.assign(existing, {
-      name,
-      owner,
-      priority,
-      status:savedStatus,
-      progress,
-      manualProgress: progress,
-      blocker,
-      nextAction,
-      members,
+      name, owner, priority, status:savedStatus,
+      progress, autoProgress:automaticProgress, manualProgress, progressMode,
+      plannedStart, plannedEnd,
+      blocker, nextAction, members,
       updatedAt:new Date().toISOString()
     });
 
+    V21.recalculateAutomaticProgress(state);
+    const effectiveProgress = projectEffectiveProgress(existing);
+
     addActivity({
       projectId: existing.id,
-      text: `Projet mis à jour · ${progress} % · ${statusLabels[savedStatus]}`,
+      text: `Projet mis à jour · ${effectiveProgress} % · ${progressMode === 'manual' ? 'manuel' : 'auto'} · ${statusLabels[savedStatus]}`,
       internalTag: TAGS.PROJECT_EDIT
     });
 
@@ -2621,15 +2692,24 @@ function createProjectFromForm() {
     }
 
     persist(TAGS.PROJECT_EDIT, 'Projet modifié', {
-      projectId: existing.id,
-      owner,
-      members,
-      priority,
-      status:existing.status,
-      progress:existing.progress,
-      automaticProgress:true,
-      blocker
+      projectId: existing.id, owner, members, priority, status:existing.status,
+      progress:existing.progress, autoProgress:existing.autoProgress,
+      manualProgress:existing.manualProgress, progressMode:existing.progressMode,
+      plannedStart, plannedEnd, blocker
     });
+
+    if (plannedStart && plannedEnd) {
+      const scope = new Set([existing.id, ...projectDescendantIds(existing.id)]);
+      const outsideCount = state.tasks.filter(t => {
+        if (!scope.has(t.projectId)) return false;
+        const start = t.plannedStart || t.scheduledFor || null;
+        const end = t.plannedEnd || dateKey(t.dueAt) || start;
+        return (start && start < plannedStart) || (end && end > plannedEnd);
+      }).length;
+      if (outsideCount) {
+        window.alert(`${outsideCount} tâche${outsideCount > 1 ? 's' : ''} dépasse${outsideCount > 1 ? 'nt' : ''} les dates prévues du projet. Les tâches ont été conservées.`);
+      }
+    }
   } else {
     const parentId = projectModalParentId || null;
     const parent = project(parentId);
@@ -2639,7 +2719,6 @@ function createProjectFromForm() {
       return;
     }
 
-    const progress = 0;
     const id = crypto.randomUUID();
     const members = selectedProjectMembers(
       owner,
@@ -2647,24 +2726,21 @@ function createProjectFromForm() {
     );
     const siblings = projectChildren(parentId);
     const treeSortOrder = Math.max(0, ...siblings.map(x => Number(x.treeSortOrder || 0))) + 1000;
+    const progressMode = isAdmin() ? requestedMode : 'auto';
+    const manualProgress = isAdmin() ? requestedManual : 0;
 
     const newProject = {
-      id,
-      name,
-      owner,
-      members,
-      status,
-      priority,
-      progress,
-      manualProgress:progress,
-      parentProjectId:parentId,
-      treeSortOrder,
-      blocker,
-      nextAction,
-      updatedAt:new Date().toISOString()
+      id, name, owner, members, status, priority,
+      progress:progressMode === 'manual' ? manualProgress : 0,
+      autoProgress:0, manualProgress, progressMode,
+      plannedStart, plannedEnd,
+      parentProjectId:parentId, treeSortOrder,
+      blocker, nextAction, updatedAt:new Date().toISOString()
     };
 
     state.projects.push(newProject);
+    V21.recalculateAutomaticProgress(state);
+
     addActivity({
       projectId:id,
       text: parent
@@ -2672,13 +2748,10 @@ function createProjectFromForm() {
         : `Nouveau projet créé : ${name}`,
       internalTag:TAGS.PROJECT_CREATE
     });
+
     persist(TAGS.PROJECT_CREATE, parent ? 'Sous-projet créé manuellement' : 'Projet créé manuellement', {
-      projectId:id,
-      parentProjectId:parentId,
-      owner,
-      members,
-      priority,
-      status
+      projectId:id, parentProjectId:parentId, owner, members, priority, status,
+      progressMode, manualProgress, plannedStart, plannedEnd
     });
 
     selectedProjectId = id;
@@ -3249,12 +3322,44 @@ async function updateTaskDatesFromGantt(taskId, startDate, endDate, mode = 'move
     internalTag:TAGS.TASK_SCHEDULE
   });
   persist(TAGS.TASK_SCHEDULE, 'Dates modifiées depuis le Gantt', {
-    taskId:t.id,
-    previous,
-    plannedStart:startDate,
-    plannedEnd:endDate,
-    mode
+    taskId:t.id, previous, plannedStart:startDate, plannedEnd:endDate, mode
   });
+  render();
+}
+
+function updateProjectDatesFromGantt(projectId, startDate, endDate, mode = 'move') {
+  const p = project(projectId);
+  if (!p) return;
+
+  if (!canManageProject(p)) {
+    window.alert('Tu peux consulter ce projet mais pas modifier sa planification.');
+    return;
+  }
+
+  const label = mode === 'start' ? 'la date de début' : mode === 'end' ? 'la date de fin' : 'les dates';
+  if (!window.confirm('Modifier ' + label + ' de « ' + p.name + ' » ?')) return;
+
+  const previous = { plannedStart:p.plannedStart || null, plannedEnd:p.plannedEnd || null };
+  p.plannedStart = startDate;
+  p.plannedEnd = endDate;
+  p.updatedAt = new Date().toISOString();
+
+  addActivity({
+    projectId:p.id,
+    text:'Planification Gantt projet : ' + p.name + ' · ' + startDate + ' → ' + endDate,
+    internalTag:TAGS.PROJECT_EDIT
+  });
+  persist(TAGS.PROJECT_EDIT, 'Dates projet modifiées depuis le Gantt', {
+    projectId:p.id, previous, plannedStart:startDate, plannedEnd:endDate, mode
+  });
+  render();
+}
+
+function openProjectFromGantt(projectId) {
+  if (!projectId || !project(projectId)) return;
+  selectedProjectId = projectId;
+  projectDetailTab = 'overview';
+  currentPage = 'projects';
   render();
 }
 
@@ -3267,8 +3372,20 @@ function bindEvents() {
   });
   V21.bindPlanningModeSwitch(render);
   if (currentPage === 'planning' && V21.getPlanningMode() === 'gantt') {
-    V21.bindGantt(state, render, updateTaskDatesFromGantt);
+    V21.bindGantt(state, render, {
+      onTaskDates:updateTaskDatesFromGantt,
+      onProjectDates:updateProjectDatesFromGantt,
+      onTaskOpen:openTaskEditor,
+      onProjectOpen:openProjectFromGantt
+    });
   }
+
+  document.querySelector('#projectProgressMode')?.addEventListener('change', e => {
+    const input = document.querySelector('#projectManualProgress');
+    if (!input || input.type === 'hidden') return;
+    input.disabled = e.target.value !== 'manual';
+    if (!input.disabled) input.focus();
+  });
 
   document.querySelector('#assistantSend')?.addEventListener('click', () => sendAssistantMessage());
   document.querySelector('#assistantInput')?.addEventListener('keydown', e => {
