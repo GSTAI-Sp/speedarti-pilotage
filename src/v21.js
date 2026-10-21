@@ -552,7 +552,9 @@ function renderProjectRows(state, project, range, depth = 0) {
   const pInterval = projectInterval(state, project.id);
   const manual = project.progressMode === 'manual';
   const projectDatesEditable = pInterval?.source === 'project' && canEditProjectInGantt(state, project);
-  const intervalText = pInterval ? `${dateKey(pInterval.start)} → ${dateKey(pInterval.end)}` : 'Sans dates';
+  const intervalText = pInterval
+    ? `${dateKey(pInterval.start)} → ${dateKey(pInterval.end)}${pInterval.source === 'tasks' ? ' · dates déduites des tâches' : ''}`
+    : 'Sans dates';
   let html = `<div class="v21-gantt-row project-row">
     <button type="button" class="v21-gantt-label v21-gantt-open" data-gantt-project-open="${esc(project.id)}" style="--gantt-depth:${depth}">
       <span class="v21-gantt-folder">▣</span>
@@ -647,7 +649,6 @@ export function renderGantt(state, labels = {}) {
     && projectAllowedByFilter(state, project)
     && (ganttProfile === 'all' || project.owner === ganttProfile)
     && !projectHasExplicitDates(project)
-    && !projectInterval(state, project.id)
   );
 
   return `
