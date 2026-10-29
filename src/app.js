@@ -485,7 +485,7 @@ function refreshSmartNotifications() {
       if (!stillActive) { n.resolved = true; n.resolvedAt = new Date().toISOString(); changed = true; trace(TAGS.NOTIF_RESOLVE, 'Alerte blocage résolue automatiquement', { notificationId:n.id, projectId:n.projectId }); }
     }
   });
-  state.tasks.filter(t => t.assignedTo === state.currentUser.id && t.status !== 'completed' && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).forEach(t => {
+  state.tasks.filter(t => taskAssigneeIds(t).includes(state.currentUser.id) && t.status !== 'completed' && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).forEach(t => {
     const key = `deadline:${t.id}`;
     const before = state.notifications.find(n => isMyNotification(n) && !n.resolved && n.groupKey === key);
     upsertNotification({ severity:'warning', type:'deadline', title:'Échéance dépassée', message:`${t.title} · échéance ${formatDate(t.dueAt)}`, actionType:'edit_task', taskId:t.id, projectId:t.projectId, groupKey:key, internalTag:TAGS.NOTIF_DEADLINE });
@@ -833,7 +833,7 @@ function buildAutomaticDailyReport(member, reportDate, agent = null) {
     .filter(a => dateKey(a.at) === reportDate && actorMatchesPerson(a.actor, member.id))
     .slice(0, 8);
   const completedTasks = state.tasks.filter(t =>
-    t.assignedTo === member.id && t.status === 'completed' &&
+    taskAssigneeIds(t).includes(member.id) && t.status === 'completed' &&
     (dateKey(t.completedAt) === reportDate || (!t.completedAt && t.scheduledFor === reportDate))
   );
   const achievements = [...new Set([
@@ -2482,7 +2482,7 @@ function renderDeferModal(taskId) {
 
 function renderTeamWorkloadModal() {
   const cards = selectedMembers().map(m => {
-    const tasks = state.tasks.filter(t => t.assignedTo === m.id && t.status !== 'completed' && (!t.projectId || !project(t.projectId)?.archived));
+    const tasks = state.tasks.filter(t => taskAssigneeIds(t).includes(m.id) && t.status !== 'completed' && (!t.projectId || !project(t.projectId)?.archived));
     const today = tasks.filter(t => t.scheduledFor === currentDateKey()).length;
     const overdue = tasks.filter(t => t.dueAt && new Date(t.dueAt) < new Date()).length;
     const active = tasks.filter(t => t.status === 'in_progress').length;
@@ -3206,7 +3206,7 @@ function simulateAiIncoming() {
     const priority = document.querySelector('#aiPriority')?.value || 'medium';
     const suggestedBucket = document.querySelector('#aiSuggestedBucket')?.value || 'this_month';
     const taskId = crypto.randomUUID();
-    state.tasks.push({ id:taskId, title, projectId, assignedTo, status:'todo', priority, scheduledFor:null, dueAt:null, planningStatus:'unplanned', planningBucket:'backlog', suggestedBucket, needsPlanning:true, sortOrder:Date.now(), sourceType:aiSourceType(source), sourceAgent:source, createdAt:new Date().toISOString() });
+    state.tasks.push({ id:taskId, title, projectId, assignedTo, assignees:[assignedTo], status:'todo', priority, scheduledFor:null, dueAt:null, plannedStart:null, plannedEnd:null, planningStatus:'unplanned', planningBucket:'backlog', suggestedBucket, needsPlanning:true, sortOrder:Date.now(), sourceType:aiSourceType(source), sourceAgent:source, createdAt:new Date().toISOString() });
     const notification = upsertNotification({ severity:'action', type:'planning_required', title:'Nouvel élément à planifier', message:title, actionType:'plan', taskId, projectId, groupKey:`planning:${taskId}`, internalTag:TAGS.NOTIF_PLAN });
     state.activity.unshift({ id:crypto.randomUUID(), at:new Date().toISOString(), actor, projectId, text:`Nouvel élément proposé : ${title}`, internalTag:TAGS.AI_REQUEST_RECEIVED });
     trace(TAGS.PLAN_DETECT, 'Nouvel élément IA à planifier', { taskId, suggestedBucket });
@@ -3610,9 +3610,7 @@ async function updateTaskDatesFromGantt(taskId, startDate, endDate, mode = 'move
   const t = task(taskId);
   if (!t) return;
 
-  const allowed = isAdmin()
-    || t.assignedTo === state.currentUser.id
-    || (t.projectId && projectMemberIds(project(t.projectId)).includes(state.currentUser.id));
+  const allowed = canEditTask(t);
 
   if (!allowed) {
     window.alert('Tu peux consulter cette tâche mais pas modifier sa planification.');
