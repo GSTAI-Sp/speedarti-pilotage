@@ -2020,7 +2020,8 @@ function selectedTasks() {
 }
 
 function taskSelectionCheckbox(t) {
-  return `<label class="task-bulk-toggle" title="Sélectionner cette tâche pour une modification groupée"><input type="checkbox" data-task-select="${esc(t.id)}" ${selectedTaskIds.has(t.id) ? 'checked' : ''} /><span>✓</span></label>`;
+  const editable = canEditTask(t);
+  return `<label class="task-bulk-toggle ${editable ? '' : 'is-disabled'}" title="${editable ? 'Sélectionner cette tâche pour une modification groupée' : 'Consultation uniquement'}"><input type="checkbox" data-task-select="${esc(t.id)}" ${selectedTaskIds.has(t.id) ? 'checked' : ''} ${editable ? '' : 'disabled'} /><span>✓</span></label>`;
 }
 
 function renderTaskBulkBar(visibleTasks = []) {
@@ -2090,6 +2091,170 @@ function renderBulkTaskModal() {
     <p class="form-note">Seuls les champs choisis sont modifiés. Les autres caractéristiques de chaque tâche restent intactes.</p>
     <footer><button class="secondary-btn" id="cancelBulkTask">Annuler</button><button class="primary-btn" id="applyBulkTask">Appliquer aux ${tasks.length} tâches</button></footer>
   </div>`;
+}
+
+function openBulkTaskEdit() {
+  if (!selectedTasks().length) return;
+  bulkTaskEditOpen = true;
+  taskModalOpen = false;
+  planningTaskId = null;
+  notificationOpen = false;
+  render();
+}
+
+function closeBulkTaskEdit() {
+  bulkTaskEditOpen = false;
+  render();
+}
+
+function applyBulkTaskEdits() {
+  const targets = selectedTasks();
+  if (!targets.length) {
+    bulkTaskEditOpen = false;
+    render();
+    return;
+  }
+
+  const assigneeMode = document.querySelector('#bulkAssigneeMode')?.value || 'keep';
+  const bulkAssignees = selectedAssigneePickerIds('bulk');
+  const dateMode = document.querySelector('#bulkDateMode')?.value || 'keep';
+  let plannedStart = document.querySelector('#bulkPlannedStart')?.value || null;
+  let plannedEnd = document.querySelector('#bulkPlannedEnd')?.value || null;
+  const projectValue = document.querySelector('#bulkProject')?.value || '__keep__';
+  const priority = document.querySelector('#bulkPriority')?.value || '__keep__';
+  const status = document.querySelector('#bulkStatus')?.value || '__keep__';
+  const planningBucket = document.querySelector('#bulkPlanning')?.value || '__keep__';
+
+  if (assigneeMode !== 'keep' && !bulkAssignees.length) {
+    window.alert('Sélectionne au moins une personne pour modifier les affectations.');
+    return;
+  }
+
+  if (dateMode === 'set') {
+    if (plannedStart && !plannedEnd) plannedEnd = plannedStart;
+    if (!plannedStart && plannedEnd) plannedStart = plannedEnd;
+    if (!plannedStart && !plannedEnd) {
+      window.alert('Renseigne une date de début ou de fin, ou choisis « Effacer les dates ».');
+      return;
+    }
+    if (plannedStart && plannedEnd && plannedEnd < plannedStart) {
+      window.alert('La date de fin ne peut pas être avant la date de début.');
+      document.querySelector('#bulkPlannedEnd')?.focus();
+      return;
+    }
+  }
+
+  const skipped = [];
+  const updated = [];
+
+  targets.forEach(t => {
+    if (!canEditTask(t)) {
+      skipped.push(t);
+      return;
+    }
+
+    const currentAssignees = taskAssigneeIds(t);
+    const nextProjectId = projectValue === '__keep__'
+      ? t.projectId
+      : projectValue === '__none__'
+        ? null
+        : projectValue;
+
+    let nextAssignees = currentAssignees;
+    if (assigneeMode === 'add') {
+      nextAssignees = [...new Set([...currentAssignees, ...bulkAssignees])];
+    } else if (assigneeMode === 'replace') {
+      nextAssignees = [...new Set(bulkAssignees)];
+    }
+
+    const assignmentOrProjectChanged = assigneeMode !== 'keep' || projectValue !== '__keep__';
+    if (assignmentOrProjectChanged && !nextAssignees.every(memberId => taskAssigneeAllowed(nextProjectId, memberId))) {
+      skipped.push(t);
+      return;
+    }
+
+    const oldAssignees = currentAssignees;
+    const oldProjectId = t.projectId;
+
+    if (projectValue !== '__keep__') t.projectId = nextProjectId;
+    if (assigneeMode !== 'keep') {
+      t.assignees = nextAssignees;
+      t.assignedTo = nextAssignees.includes(t.assignedTo) ? t.assignedTo : nextAssignees[0];
+    }
+
+    if (dateMode === 'set') {
+      t.plannedStart = plannedStart;
+      t.plannedEnd = plannedEnd;
+      t.scheduledFor = plannedStart;
+      t.dueAt = toDueIso(plannedEnd || '');
+      t.planningStatus = 'planned';
+      t.needsPlanning = false;
+    } else if (dateMode === 'clear') {
+      t.plannedStart = null;
+      t.plannedEnd = null;
+      t.scheduledFor = null;
+      t.dueAt = null;
+      t.planningStatus = 'unplanned';
+      t.needsPlanning = true;
+    }
+
+    if (priority !== '__keep__') t.priority = priority;
+    if (planningBucket !== '__keep__') t.planningBucket = planningBucket;
+    if (status !== '__keep__') {
+      t.status = status;
+      t.completedAt = status === 'completed' ? (t.completedAt || new Date().toISOString()) : null;
+    }
+
+    t.updatedAt = new Date().toISOString();
+    updated.push(t);
+
+    if (assigneeMode !== 'keep') {
+      nextAssignees
+        .filter(memberId => !oldAssignees.includes(memberId) && memberId !== state.currentUser.id)
+        .forEach(memberId => upsertNotification({
+          recipientId:memberId, severity:'info', type:'task_assignment',
+          title:'Tâche affectée', message:t.title,
+          actionType:'edit_task', taskId:t.id, projectId:t.projectId,
+          groupKey:`task-assignment:${t.id}:${memberId}`, internalTag:TAGS.NOTIF_ASSIGNMENT, reactivate:true
+        }));
+    }
+
+    addActivity({
+      projectId:t.projectId,
+      taskId:t.id,
+      text:`Modification groupée : ${t.title}${oldProjectId !== t.projectId ? ` · projet ${project(t.projectId)?.name || 'Sans projet'}` : ''}`,
+      internalTag:TAGS.TASK_EDIT
+    });
+  });
+
+  if (!updated.length) {
+    window.alert('Aucune tâche n’a pu être modifiée avec ces caractéristiques. Vérifie notamment les participants des projets.');
+    return;
+  }
+
+  V21.recalculateAutomaticProgress(state);
+  persist(TAGS.TASK_EDIT, 'Modification groupée de tâches', {
+    taskIds:updated.map(t => t.id),
+    skippedTaskIds:skipped.map(t => t.id),
+    assigneeMode,
+    assignees:bulkAssignees,
+    dateMode,
+    plannedStart,
+    plannedEnd,
+    project:projectValue,
+    priority,
+    status,
+    planningBucket
+  });
+
+  selectedTaskIds = new Set(skipped.map(t => t.id));
+  bulkTaskEditOpen = false;
+
+  if (skipped.length) {
+    window.alert(`${updated.length} tâche${updated.length > 1 ? 's' : ''} modifiée${updated.length > 1 ? 's' : ''}. ${skipped.length} tâche${skipped.length > 1 ? 's' : ''} non modifiable${skipped.length > 1 ? 's' : ''} avec ces paramètres, principalement à cause des droits ou des participants projet.`);
+  }
+
+  render();
 }
 
 function renderPlanningModal(taskId) {
@@ -3538,6 +3703,31 @@ function bindEvents() {
     });
   }
 
+  document.querySelectorAll('[data-task-select]').forEach(input => {
+    input.addEventListener('click', e => e.stopPropagation());
+    input.addEventListener('change', () => {
+      const id = input.dataset.taskSelect;
+      if (!id) return;
+      if (input.checked) selectedTaskIds.add(id);
+      else selectedTaskIds.delete(id);
+      render();
+    });
+  });
+  document.querySelector('[data-task-select-visible]')?.addEventListener('click', () => {
+    document.querySelectorAll('[data-task-select]:not(:disabled)').forEach(input => selectedTaskIds.add(input.dataset.taskSelect));
+    render();
+  });
+  document.querySelector('[data-clear-task-selection]')?.addEventListener('click', () => {
+    selectedTaskIds.clear();
+    bulkTaskEditOpen = false;
+    render();
+  });
+  document.querySelector('[data-bulk-task-edit]')?.addEventListener('click', openBulkTaskEdit);
+  document.querySelector('#closeBulkTask')?.addEventListener('click', closeBulkTaskEdit);
+  document.querySelector('#cancelBulkTask')?.addEventListener('click', closeBulkTaskEdit);
+  document.querySelector('#bulkTaskBackdrop')?.addEventListener('click', closeBulkTaskEdit);
+  document.querySelector('#applyBulkTask')?.addEventListener('click', applyBulkTaskEdits);
+
   document.querySelectorAll('[data-assignee-picker]').forEach(button => button.addEventListener('click', () => {
     if (button.disabled) return;
     button.classList.toggle('active');
@@ -3866,7 +4056,11 @@ function bindDragAndDrop() {
 
   // Roadmap : glisser-déposer des tâches (comportement existant conservé).
   document.querySelectorAll('.planning-card').forEach(card => {
-    card.addEventListener('dragstart', () => {
+    card.addEventListener('dragstart', e => {
+      if (e.target.closest('.task-bulk-toggle')) {
+        e.preventDefault();
+        return;
+      }
       draggedTask = card.dataset.task;
       card.classList.add('dragging');
     });
