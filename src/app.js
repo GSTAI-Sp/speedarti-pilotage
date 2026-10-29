@@ -2758,6 +2758,7 @@ function decideApproval(requestId, approved) {
 
 function openTaskModal(projectId = null, editId = null) {
   taskModalOpen = true;
+  bulkTaskEditOpen = false;
   taskModalProjectId = projectId;
   taskEditId = editId;
   projectModalOpen = false;
@@ -3686,6 +3687,8 @@ function openProjectFromGantt(projectId) {
 
 function bindEvents() {
   V21.bindProfileSelector(state, render, ids => {
+    selectedTaskIds.clear();
+    bulkTaskEditOpen = false;
     if (planningFilterOwner !== 'all' && !ids.includes(planningFilterOwner)) planningFilterOwner = 'all';
     if (dailyReportPersonFilter !== 'all' && !ids.includes(dailyReportPersonFilter)) dailyReportPersonFilter = 'all';
     if (selectedProjectId && !V21.projectInScope(state, project(selectedProjectId))) selectedProjectId = null;
