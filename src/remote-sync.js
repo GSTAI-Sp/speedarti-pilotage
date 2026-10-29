@@ -206,7 +206,7 @@
     trace(TAGS.HYDRATE, 'Chargement des données Supabase');
 
     const [
-      members, projects, projectMembers, agents, tasks, changes,
+      members, projects, projectMembers, agents, tasks, taskAssignees, changes,
       notifications, activity, documents, aiRequests, aiEvents, reports, reportProjects,
       integrations, driveItems, calendarSources, calendarEvents
     ] = await Promise.all([
@@ -215,6 +215,7 @@
       selectAll('project_members'),
       selectAll('ai_agents'),
       selectAll('tasks'),
+      selectAll('task_assignees'),
       selectAll('change_requests'),
       selectAll('notifications'),
       selectAll('activity_log'),
@@ -248,6 +249,15 @@
       if (!pKey || !mKey) return;
       if (!memberships.has(pKey)) memberships.set(pKey, []);
       memberships.get(pKey).push(mKey);
+    });
+
+    const taskAssignments = new Map();
+    taskAssignees.forEach(row => {
+      const tKey = taskClient(row.task_id);
+      const mKey = memberClient(row.member_id);
+      if (!tKey || !mKey) return;
+      if (!taskAssignments.has(tKey)) taskAssignments.set(tKey, []);
+      taskAssignments.get(tKey).push({ memberId:mKey, role:row.assignment_role || 'assignee' });
     });
 
     const reportLinks = new Map();
@@ -308,30 +318,44 @@
       lastSeenAt: row.last_seen_at || null
     }));
 
-    const localTasks = tasks.map(row => ({
-      id: keyFor(row, 'task'),
-      title: row.title,
-      projectId: projectClient(row.project_id),
-      assignedTo: memberClient(row.assigned_to_member_id),
-      status: row.status,
-      priority: row.priority,
-      progress: Number(row.progress || (row.status === 'completed' ? 100 : 0)),
-      scheduledFor: row.scheduled_for,
-      dueAt: row.due_at,
-      planningStatus: row.planning_status,
-      planningBucket: row.planning_bucket,
-      suggestedBucket: row.suggested_bucket,
-      needsPlanning: Boolean(row.needs_planning),
-      plannedStart: row.planned_start,
-      plannedEnd: row.planned_end,
-      sortOrder: Number(row.sort_order || 0),
-      completedAt: row.completed_at,
-      sourceType: row.source_type,
-      sourceAgent: agentClient(row.source_agent_id),
-      sourceIdeaId: row.source_idea_id || null,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+    const localTasks = tasks.map(row => {
+      const key = keyFor(row, 'task');
+      const linked = taskAssignments.get(key) || [];
+      const linkedPrimary = linked.find(item => item.role === 'primary')?.memberId || null;
+      const assignedTo = memberClient(row.assigned_to_member_id) || linkedPrimary || linked[0]?.memberId || null;
+      const assignees = [...new Set([
+        assignedTo,
+        ...linked
+          .sort((a,b) => (a.role === 'primary' ? -1 : b.role === 'primary' ? 1 : 0))
+          .map(item => item.memberId)
+      ].filter(Boolean))];
+
+      return {
+        id: key,
+        title: row.title,
+        projectId: projectClient(row.project_id),
+        assignedTo,
+        assignees,
+        status: row.status,
+        priority: row.priority,
+        progress: Number(row.progress || (row.status === 'completed' ? 100 : 0)),
+        scheduledFor: row.scheduled_for,
+        dueAt: row.due_at,
+        planningStatus: row.planning_status,
+        planningBucket: row.planning_bucket,
+        suggestedBucket: row.suggested_bucket,
+        needsPlanning: Boolean(row.needs_planning),
+        plannedStart: row.planned_start,
+        plannedEnd: row.planned_end,
+        sortOrder: Number(row.sort_order || 0),
+        completedAt: row.completed_at,
+        sourceType: row.source_type,
+        sourceAgent: agentClient(row.source_agent_id),
+        sourceIdeaId: row.source_idea_id || null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+    });
 
     const localChanges = changes.map(row => ({
       id: keyFor(row, 'change'),
@@ -686,6 +710,44 @@
     trace(TAGS.TASK_SYNC, 'Tâches synchronisées', { count: items.length });
   }
 
+  function taskAssigneeKeys(task) {
+    return [...new Set([task?.assignedTo, ...array(task?.assignees)].filter(Boolean))].sort();
+  }
+
+  async function syncTaskAssignees(items) {
+    if (!items.length) return;
+
+    for (const task of items) {
+      const tUuid = taskUuid(task.id);
+      if (!tUuid) continue;
+
+      const assigneeKeys = [...new Set([task.assignedTo, ...array(task.assignees)].filter(Boolean))];
+      const memberIds = assigneeKeys
+        .map(key => ({ key, uuid:memberUuid(key) }))
+        .filter(item => item.uuid);
+
+      const { error: delError } = await client
+        .from('task_assignees')
+        .delete()
+        .eq('task_id', tUuid);
+      if (delError) throw new Error(`task_assignees(delete): ${delError.message}`);
+
+      if (memberIds.length) {
+        const primaryKey = task.assignedTo || assigneeKeys[0];
+        const { error } = await client.from('task_assignees').insert(
+          memberIds.map(item => ({
+            task_id:tUuid,
+            member_id:item.uuid,
+            assignment_role:item.key === primaryKey ? 'primary' : 'assignee'
+          }))
+        );
+        if (error) throw new Error(`task_assignees(insert): ${error.message}`);
+      }
+    }
+
+    trace(TAGS.TASK_SYNC, 'Co-affectations tâches synchronisées', { count:items.length });
+  }
+
   async function syncChanges(items) {
     if (!items.length) return;
     const rows = items.map(r => ({
@@ -867,6 +929,14 @@
     const projectChanges = changedItems(before?.projects, after?.projects);
     const agentChanges = changedItems(before?.aiAgents, after?.aiAgents);
     const taskChanges = changedItems(before?.tasks, after?.tasks);
+    const oldTaskMap = new Map(array(before?.tasks).map(task => [task?.id, task]));
+    const taskAssigneeChanges = array(after?.tasks).filter(task => {
+      if (!task?.id) return false;
+      const previous = oldTaskMap.get(task.id);
+      if (!previous) return true;
+      return previous.assignedTo !== task.assignedTo
+        || !jsonEqual(taskAssigneeKeys(previous), taskAssigneeKeys(task));
+    });
     const changeChanges = changedItems(before?.changeRequests, after?.changeRequests);
     const notifChanges = changedItems(before?.notifications, after?.notifications);
     const activityChanges = changedItems(before?.activity, after?.activity);
@@ -878,6 +948,7 @@
       projects: projectChanges.length,
       agents: agentChanges.length,
       tasks: taskChanges.length,
+      taskAssignees: taskAssigneeChanges.length,
       changes: changeChanges.length,
       notifications: notifChanges.length,
       activity: activityChanges.length,
@@ -890,6 +961,7 @@
     await syncProjects(projectChanges);
     await syncAgents(agentChanges);
     await syncTasks(taskChanges);
+    await syncTaskAssignees(taskAssigneeChanges);
     await syncChanges(changeChanges);
     await syncNotifications(notifChanges);
     await syncActivity(activityChanges);
