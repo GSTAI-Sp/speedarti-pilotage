@@ -2019,7 +2019,7 @@ function renderPlanningModal(taskId) {
     <header><div><small>${t.needsPlanning ? 'NOUVEL ÉLÉMENT' : 'PLANIFICATION'}</small><h2>${t.needsPlanning ? 'Planifier cette tâche' : 'Déplacer ou dater la tâche'}</h2></div><button class="icon-btn" id="closePlan">×</button></header>
     <div class="modal-task"><strong>${esc(t.title)}</strong><span>${esc(project(t.projectId)?.name || 'Sans projet')}</span></div>
     <div class="form-grid compact-grid">
-      <div class="form-field form-field-full"><span>Responsable</span>${teamPicker('planOwner', t.assignedTo)}</div>
+      <div class="form-field form-field-full"><span>Personnes affectées — plusieurs choix possibles</span>${taskAssigneePicker(taskAssigneeIds(t), t.projectId, 'plan')}<small>La première personne conservée devient le responsable principal technique.</small></div>
       <label class="form-field"><span>Date de début (optionnelle)</span><input id="planPlannedStart" type="date" value="${esc(t.plannedStart || t.scheduledFor || '')}" /></label>
       <label class="form-field"><span>Date de fin (optionnelle)</span><input id="planPlannedEnd" type="date" value="${esc(t.plannedEnd || dateKey(t.dueAt) || t.plannedStart || t.scheduledFor || '')}" /></label>
     </div>
@@ -2034,7 +2034,7 @@ function renderPlanningModal(taskId) {
 function renderTaskModal() {
   const existing = taskEditId ? task(taskEditId) : null;
   const defaultProject = existing?.projectId || taskModalProjectId || '';
-  const owner = existing?.assignedTo || state.currentUser.id;
+  const assignees = existing ? taskAssigneeIds(existing) : [state.currentUser.id];
   const priority = existing?.priority || 'medium';
   const status = existing?.status || 'todo';
   const bucket = existing?.planningBucket || 'this_week';
@@ -2047,7 +2047,7 @@ function renderTaskModal() {
     <div class="form-grid">
       <label class="form-field form-field-full"><span>Titre</span><input id="taskTitle" type="text" value="${esc(existing?.title || '')}" placeholder="Ex. Tester la nouvelle intégration" maxlength="120" /></label>
       <label class="form-field form-field-full"><span>Projet</span><select id="taskProject"><option value="">Sans projet</option>${state.projects.filter(p => !p.archived || p.id === defaultProject).map(p => `<option value="${p.id}" ${defaultProject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-      <div class="form-field form-field-full"><span>Responsable — clique sur une personne</span>${teamPicker('taskOwner', owner)}</div>
+      <div class="form-field form-field-full"><span>Personnes affectées — plusieurs choix possibles</span>${taskAssigneePicker(assignees, defaultProject || null, 'task')}<small>Tu peux sélectionner plusieurs personnes. Le responsable principal reste conservé pour la compatibilité avec l’existant.</small></div>
       <label class="form-field"><span>Priorité</span><select id="taskPriority">${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}" ${value === priority ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <label class="form-field"><span>État</span><select id="taskStatus">${Object.entries(statusLabels).map(([value,label]) => `<option value="${value}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <div class="form-field form-field-full"><span>Progression automatique</span>${V21.renderTaskProgress(existing || { status }, false)}<small>0 % tant que la tâche n’est pas terminée · 100 % une fois terminée.</small></div>
@@ -2545,10 +2545,22 @@ function createTaskFromForm() {
   }
 
   const projectId = document.querySelector('#taskProject')?.value || null;
-  const assignedTo = document.querySelector('#taskOwner')?.value || state.currentUser.id;
+  const assignees = selectedAssigneePickerIds('task');
   const priority = document.querySelector('#taskPriority')?.value || 'medium';
   const status = document.querySelector('#taskStatus')?.value || 'todo';
   const planningBucket = document.querySelector('#taskPlanning')?.value || 'backlog';
+
+  if (!assignees.length) {
+    window.alert('Sélectionne au moins une personne pour cette tâche.');
+    return;
+  }
+  if (!assignees.every(memberId => taskAssigneeAllowed(projectId, memberId))) {
+    window.alert(projectId
+      ? 'Toutes les personnes affectées doivent faire partie des participants du projet.'
+      : 'Sans projet, un membre peut s’affecter lui-même. La Direction peut affecter toute l’équipe.');
+    refreshTaskAssigneeAvailability(projectId, 'task');
+    return;
+  }
 
   let plannedStart = document.querySelector('#taskPlannedStart')?.value || null;
   let plannedEnd = document.querySelector('#taskPlannedEnd')?.value || null;
@@ -2565,24 +2577,18 @@ function createTaskFromForm() {
   const planningStatus = plannedStart ? 'planned' : 'unplanned';
   const needsPlanning = !plannedStart;
 
-  if (!taskAssigneeAllowed(projectId, assignedTo)) {
-    window.alert(projectId
-      ? 'Le responsable de la tâche doit faire partie des participants du projet.'
-      : 'Sans projet, un membre peut créer une tâche uniquement pour lui-même. La Direction peut assigner toute l’équipe.');
-    refreshTaskOwnerAvailability(projectId);
-    return;
-  }
-
   if (taskEditId) {
     const existing = task(taskEditId);
     if (!existing) return;
-    const oldOwner = existing.assignedTo;
+
+    const oldAssignees = taskAssigneeIds(existing);
+    const assignedTo = assignees.includes(existing.assignedTo) ? existing.assignedTo : assignees[0];
     const oldProject = existing.projectId;
     const oldPlannedStart = existing.plannedStart || null;
     const oldPlannedEnd = existing.plannedEnd || null;
 
     Object.assign(existing, {
-      title, projectId, assignedTo, priority, status, planningBucket,
+      title, projectId, assignedTo, assignees, priority, status, planningBucket,
       scheduledFor, dueAt, plannedStart, plannedEnd, planningStatus, needsPlanning,
       sortOrder: existing.sortOrder || Date.now(),
       completedAt: status === 'completed' ? (existing.completedAt || new Date().toISOString()) : null,
@@ -2592,49 +2598,62 @@ function createTaskFromForm() {
     V21.recalculateAutomaticProgress(state);
     addActivity({ projectId, taskId:existing.id, text: `Tâche modifiée : ${title}`, internalTag: TAGS.TASK_EDIT });
 
-    if (oldOwner !== assignedTo) {
-      addActivity({ projectId, text: `${title} assignée à ${teamName(assignedTo)}`, internalTag: TAGS.TASK_ASSIGN });
-      if (assignedTo !== state.currentUser.id) {
-        upsertNotification({
-          recipientId:assignedTo, severity:'info', type:'task_assignment',
-          title:'Tâche réassignée', message:`${title}${projectId ? ` · ${project(projectId)?.name || 'Projet'}` : ''}`,
+    const oldKey = [...oldAssignees].sort().join('|');
+    const newKey = [...assignees].sort().join('|');
+    if (oldKey !== newKey) {
+      addActivity({
+        projectId,
+        taskId:existing.id,
+        text:`${title} · affectation : ${assignees.map(teamName).join(', ')}`,
+        internalTag:TAGS.TASK_ASSIGN
+      });
+
+      assignees
+        .filter(memberId => !oldAssignees.includes(memberId) && memberId !== state.currentUser.id)
+        .forEach(memberId => upsertNotification({
+          recipientId:memberId, severity:'info', type:'task_assignment',
+          title:'Tâche affectée', message:`${title}${projectId ? ` · ${project(projectId)?.name || 'Projet'}` : ''}`,
           actionType:'edit_task', taskId:existing.id, projectId,
-          groupKey:`task-assignment:${existing.id}:${assignedTo}`, internalTag:TAGS.NOTIF_ASSIGNMENT, reactivate:true
-        });
-      }
+          groupKey:`task-assignment:${existing.id}:${memberId}`, internalTag:TAGS.NOTIF_ASSIGNMENT, reactivate:true
+        }));
     }
 
     if (oldPlannedStart !== plannedStart || oldPlannedEnd !== plannedEnd) {
-      addActivity({ projectId, text: `Planification mise à jour : ${title}`, internalTag: TAGS.TASK_SCHEDULE });
+      addActivity({ projectId, taskId:existing.id, text: `Planification mise à jour : ${title}`, internalTag: TAGS.TASK_SCHEDULE });
     }
 
     persist(TAGS.TASK_EDIT, 'Tâche modifiée', {
-      taskId: existing.id, oldProject, projectId, assignedTo, planningBucket,
+      taskId:existing.id, oldProject, projectId, assignedTo, assignees, planningBucket,
       plannedStart, plannedEnd, planningStatus
     });
   } else {
+    const assignedTo = assignees[0];
     const newTask = {
-      id: crypto.randomUUID(), title, projectId, assignedTo, status, priority,
+      id:crypto.randomUUID(), title, projectId, assignedTo, assignees, status, priority,
       scheduledFor, dueAt, plannedStart, plannedEnd, planningStatus, planningBucket, needsPlanning,
-      sortOrder: Date.now(), sourceType: 'manual', createdAt: new Date().toISOString(),
-      completedAt: status === 'completed' ? new Date().toISOString() : null
+      sortOrder:Date.now(), sourceType:'manual', createdAt:new Date().toISOString(),
+      completedAt:status === 'completed' ? new Date().toISOString() : null
     };
 
     state.tasks.push(newTask);
     V21.recalculateAutomaticProgress(state);
-    addActivity({ projectId, taskId:newTask.id, text: `Nouvelle tâche créée : ${title} · ${teamName(assignedTo)}`, internalTag: TAGS.TASK_CREATE });
+    addActivity({
+      projectId, taskId:newTask.id,
+      text:`Nouvelle tâche créée : ${title} · ${assignees.map(teamName).join(', ')}`,
+      internalTag:TAGS.TASK_CREATE
+    });
 
-    if (assignedTo !== state.currentUser.id) {
-      upsertNotification({
-        recipientId:assignedTo, severity:'info', type:'task_assignment',
-        title:'Nouvelle tâche assignée', message:`${title}${projectId ? ` · ${project(projectId)?.name || 'Projet'}` : ''}`,
+    assignees
+      .filter(memberId => memberId !== state.currentUser.id)
+      .forEach(memberId => upsertNotification({
+        recipientId:memberId, severity:'info', type:'task_assignment',
+        title:'Nouvelle tâche affectée', message:`${title}${projectId ? ` · ${project(projectId)?.name || 'Projet'}` : ''}`,
         actionType:'edit_task', taskId:newTask.id, projectId,
-        groupKey:`task-assignment:${newTask.id}:${assignedTo}`, internalTag:TAGS.NOTIF_ASSIGNMENT
-      });
-    }
+        groupKey:`task-assignment:${newTask.id}:${memberId}`, internalTag:TAGS.NOTIF_ASSIGNMENT
+      }));
 
     persist(TAGS.TASK_CREATE, 'Tâche créée manuellement', {
-      taskId:newTask.id, projectId, assignedTo, planningBucket,
+      taskId:newTask.id, projectId, assignedTo, assignees, planningBucket,
       plannedStart, plannedEnd, planningStatus
     });
   }
