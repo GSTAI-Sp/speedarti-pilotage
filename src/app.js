@@ -9,6 +9,8 @@ let notificationOpen = false;
 let planningTaskId = null;
 let taskModalOpen = false;
 let taskModalProjectId = null;
+let bulkTaskEditOpen = false;
+let selectedTaskIds = new Set();
 let projectModalOpen = false;
 let projectModalParentId = null;
 let projectDetailTab = 'overview';
@@ -292,6 +294,64 @@ function teamPicker(targetId, selectedId) {
   return `<div class="team-picker" data-picker="${targetId}"><input type="hidden" id="${targetId}" value="${selected}" />${state.team.map(m => `<button type="button" class="team-choice ${m.id === selected ? 'active' : ''}" data-team-target="${targetId}" data-team-value="${m.id}"><span>${personInitials(m.name)}</span><b>${esc(m.name)}</b><small>${esc(m.role)}</small></button>`).join('')}</div>`;
 }
 
+function taskAssigneeIds(t) {
+  return [...new Set([t?.assignedTo, ...(Array.isArray(t?.assignees) ? t.assignees : [])].filter(Boolean))];
+}
+
+function taskAssigneeLabel(t) {
+  const ids = taskAssigneeIds(t);
+  return ids.map(teamName).filter(Boolean).join(' · ') || 'Non attribué';
+}
+
+function canEditTask(t) {
+  if (!t) return false;
+  if (isAdmin()) return true;
+  if (taskAssigneeIds(t).includes(state.currentUser.id)) return true;
+  return Boolean(t.projectId && projectMemberIds(project(t.projectId)).includes(state.currentUser.id));
+}
+
+function taskAssigneePicker(selectedIds = [], projectId = null, picker = 'task') {
+  const allowed = new Set(taskAssignableMemberIds(projectId));
+  const selected = new Set((selectedIds?.length ? selectedIds : [state.currentUser.id]).filter(Boolean));
+  return `<div class="team-picker multi-team-picker" data-assignee-picker-root="${picker}">
+    ${state.team.map(m => {
+      const enabled = allowed.has(m.id);
+      const active = selected.has(m.id) && enabled;
+      return `<button type="button" class="team-choice ${active ? 'active' : ''}" data-assignee-picker="${picker}" data-assignee-member="${m.id}" aria-pressed="${active ? 'true' : 'false'}" ${enabled ? '' : 'disabled aria-disabled="true" title="Cette personne ne participe pas à ce projet"'}><span>${personInitials(m.name)}</span><b>${esc(m.name)}</b><small>${esc(m.role)}</small></button>`;
+    }).join('')}
+  </div>`;
+}
+
+function selectedAssigneePickerIds(picker = 'task') {
+  return [...document.querySelectorAll(`[data-assignee-picker="${picker}"].active`)]
+    .map(button => button.dataset.assigneeMember)
+    .filter(Boolean);
+}
+
+function refreshTaskAssigneeAvailability(projectId, picker = 'task') {
+  const allowed = new Set(taskAssignableMemberIds(projectId));
+  const buttons = [...document.querySelectorAll(`[data-assignee-picker="${picker}"]`)];
+  buttons.forEach(button => {
+    const enabled = allowed.has(button.dataset.assigneeMember);
+    button.disabled = !enabled;
+    button.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    button.title = enabled ? '' : 'Cette personne ne participe pas à ce projet';
+    if (!enabled) {
+      button.classList.remove('active');
+      button.setAttribute('aria-pressed','false');
+    }
+  });
+
+  if (!buttons.some(button => button.classList.contains('active') && !button.disabled)) {
+    const fallback = buttons.find(button => !button.disabled && button.dataset.assigneeMember === state.currentUser.id)
+      || buttons.find(button => !button.disabled);
+    if (fallback) {
+      fallback.classList.add('active');
+      fallback.setAttribute('aria-pressed','true');
+    }
+  }
+}
+
 // PILOT-PROJ-013 / PILOT-UI-041 — participants projet multiples, administrés côté Direction.
 function projectMemberIds(p) {
   return [...new Set([
@@ -325,20 +385,7 @@ function taskAssigneeAllowed(projectId, memberId) {
 }
 
 function refreshTaskOwnerAvailability(projectId) {
-  const allowed = new Set(taskAssignableMemberIds(projectId));
-  const hidden = document.querySelector('#taskOwner');
-  let selected = hidden?.value || state.currentUser.id;
-  if (!allowed.has(selected)) {
-    selected = allowed.has(state.currentUser.id) ? state.currentUser.id : [...allowed][0] || state.currentUser.id;
-    if (hidden) hidden.value = selected;
-  }
-  document.querySelectorAll('[data-team-target="taskOwner"]').forEach(btn => {
-    const enabled = allowed.has(btn.dataset.teamValue);
-    btn.disabled = !enabled;
-    btn.classList.toggle('active', enabled && btn.dataset.teamValue === selected);
-    btn.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-    btn.title = enabled ? '' : 'Cette personne ne participe pas à ce projet';
-  });
+  refreshTaskAssigneeAvailability(projectId, 'task');
 }
 
 function ensureRuntimeState() {
@@ -350,6 +397,13 @@ function ensureRuntimeState() {
   state.dailyReports.forEach(report => {
     if (report.source === 'ai' && !report.sourceAgent) report.sourceAgent = aiAgentsForPerson(report.personId)[0]?.id || null;
   });
+  state.tasks.forEach(t => {
+    const assignees = taskAssigneeIds(t);
+    if (!t.assignedTo && assignees.length) t.assignedTo = assignees[0];
+    t.assignees = [...new Set([t.assignedTo, ...assignees].filter(Boolean))];
+  });
+  selectedTaskIds = new Set([...selectedTaskIds].filter(id => state.tasks.some(t => t.id === id)));
+
   state.projects.forEach((p, index) => {
     if (typeof p.archived !== 'boolean') p.archived = false;
     p.members = projectMemberIds(p);
