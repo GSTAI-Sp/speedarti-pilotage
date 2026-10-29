@@ -394,7 +394,7 @@
 
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = './src/app.js?v=20261021-2';
+      script.src = './src/app.js?v=20261029-1';
       script.type = 'module';
       script.dataset.pilotageApp = 'true';
 
