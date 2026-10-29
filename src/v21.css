@@ -117,3 +117,39 @@
   .v21-gantt-unplanned-list button{min-height:44px;text-align:left}
   .v21-task-progress{min-width:110px}
 }
+
+
+/* V21.5 — multi-affectation et édition groupée des tâches */
+.multi-team-picker{grid-template-columns:repeat(auto-fit,minmax(145px,1fr))}
+.multi-team-picker .team-choice.active{outline:2px solid #2f86f6;outline-offset:1px}
+.multi-team-picker .team-choice:disabled{opacity:.42;cursor:not-allowed}
+.task-bulk-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0 14px;padding:10px 12px;border:1px solid #dfe8f3;border-radius:12px;background:#f8fbff}
+.task-bulk-bar.has-selection{border-color:#9ac6fb;background:#eef6ff;box-shadow:0 4px 14px rgba(38,106,191,.08)}
+.task-bulk-bar>div:first-child{min-width:0}
+.task-bulk-bar strong{display:block;color:#17345f;font-size:10px}
+.task-bulk-bar small{display:block;margin-top:2px;color:#718397;font-size:8px}
+.task-bulk-bar>div:last-child{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.compact-btn{min-height:32px;padding:6px 10px}
+.task-bulk-toggle{display:inline-grid;place-items:center;flex:0 0 auto;width:24px;height:24px;border:1px solid #cbd8e7;border-radius:7px;background:#fff;cursor:pointer;user-select:none}
+.task-bulk-toggle input{position:absolute;opacity:0;pointer-events:none}
+.task-bulk-toggle span{display:grid;place-items:center;width:100%;height:100%;border-radius:6px;color:transparent;font-size:11px;font-weight:900}
+.task-bulk-toggle:has(input:checked){border-color:#2f86f6;background:#eaf4ff}
+.task-bulk-toggle:has(input:checked) span{color:#176fd6}
+.task-bulk-toggle.is-disabled{opacity:.35;cursor:not-allowed}
+.task-row>.task-bulk-toggle{margin-right:2px}
+.planning-card-title{display:flex;align-items:center;gap:7px;min-width:0}
+.planning-card-title strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.planning-card .task-bulk-toggle{width:22px;height:22px}
+.bulk-task-modal{width:min(820px,calc(100vw - 24px));max-height:min(88vh,900px);overflow:auto}
+.bulk-task-summary{display:flex;gap:6px;flex-wrap:wrap;padding:0 18px 12px}
+.bulk-task-summary span{max-width:240px;padding:5px 8px;border-radius:999px;background:#eef4fb;color:#36577b;font-size:8px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bulk-task-modal .form-grid{align-items:start}
+
+@media(max-width:700px){
+  .task-bulk-bar{align-items:flex-start;flex-direction:column}
+  .task-bulk-bar>div:last-child{width:100%;justify-content:flex-start}
+  .task-bulk-bar .primary-btn,.task-bulk-bar .quiet-action{min-height:40px}
+  .multi-team-picker{grid-template-columns:1fr}
+  .task-bulk-toggle{width:30px;height:30px}
+  .bulk-task-modal{width:calc(100vw - 12px);max-height:94vh}
+}
