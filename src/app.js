@@ -582,6 +582,7 @@ function layout(content) {
       ${notificationOpen ? renderNotifications() : ''}
       ${planningTaskId ? renderPlanningModal(planningTaskId) : ''}
       ${taskModalOpen ? renderTaskModal() : ''}
+      ${bulkTaskEditOpen ? renderBulkTaskModal() : ''}
       ${projectModalOpen ? renderProjectModal() : ''}
       ${documentModalOpen ? renderDocumentModal() : ''}
       ${googleDrivePickerOpen ? renderGoogleDrivePickerModal() : ''}
@@ -967,8 +968,9 @@ function renderToday() {
 
     <section class="section">
       <div class="section-title"><h2>Tâches · ${esc(V21.getProfileScopeLabel(state))}</h2><button class="text-button" data-action="quick-add">+ Ajouter</button></div>
+      ${renderTaskBulkBar(myTasks)}
       <div class="task-list">
-        ${myTasks.map(t => `<div class="task-row"><button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}" aria-label="Terminer"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(teamName(t.assignedTo))}</small>${V21.renderTaskProgress(t)}</button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="defer-btn" data-defer-task="${t.id}">Reporter</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || `<div class="empty-line">Aucune tâche prévue aujourd’hui pour les profils sélectionnés.</div>`}
+        ${myTasks.map(t => `<div class="task-row">${taskSelectionCheckbox(t)}<button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}" aria-label="Terminer"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(taskAssigneeLabel(t))}</small>${V21.renderTaskProgress(t)}</button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="defer-btn" data-defer-task="${t.id}">Reporter</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || `<div class="empty-line">Aucune tâche prévue aujourd’hui pour les profils sélectionnés.</div>`}
       </div>
     </section>
 
@@ -982,7 +984,7 @@ function renderToday() {
           <div class="section-title"><h2>Profils sélectionnés</h2><button class="text-button" id="openTeamWorkload">Voir la charge →</button></div>
           <div class="team-list">
             ${selectedMembers().map(m => {
-              const pending = state.tasks.filter(t => t.assignedTo === m.id && t.status !== 'completed').length;
+              const pending = state.tasks.filter(t => taskAssigneeIds(t).includes(m.id) && t.status !== 'completed').length;
               const blockers = state.projects.filter(p => p.owner === m.id && p.blocker).length;
               return `<button class="team-row team-row-button" data-team-planning="${m.id}"><div><strong>${esc(m.name)}</strong><small>${esc(m.role)}</small></div><span>${pending} tâches · ${blockers ? `${blockers} blocage` : 'Tout va bien'} →</span></button>`;
             }).join('')}
@@ -1019,7 +1021,7 @@ function renderPlanning() {
     if (t.status === 'completed') return false;
     if (t.projectId && project(t.projectId)?.archived) return false;
     if (planningFilterProject !== 'all' && t.projectId !== planningFilterProject) return false;
-    if (planningFilterOwner !== 'all' && t.assignedTo !== planningFilterOwner) return false;
+    if (planningFilterOwner !== 'all' && !taskAssigneeIds(t).includes(planningFilterOwner)) return false;
     if (planningFilterPriority !== 'all' && t.priority !== planningFilterPriority) return false;
     return true;
   });
@@ -1039,6 +1041,7 @@ function renderPlanning() {
         ${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}" ${planningFilterPriority === value ? 'selected' : ''}>${label}</option>`).join('')}
       </select>
     </div>
+    ${renderTaskBulkBar(filteredTasks)}
     <div class="mobile-roadmap-tabs">${buckets.map(bucket => `<button class="${mobilePlanningBucket === bucket ? 'active' : ''}" data-mobile-bucket="${bucket}">${planningLabels[bucket]}</button>`).join('')}</div>
     <div class="planning-board">
       ${buckets.map(bucket => {
@@ -1047,11 +1050,11 @@ function renderPlanning() {
           <header><h2>${planningLabels[bucket]}</h2><span>${items.length}</span></header>
           <div class="planning-dropzone" data-dropzone="${bucket}">
             ${items.map(t => `<article class="planning-card ${t.needsPlanning && t.planningStatus === 'unplanned' ? 'needs-planning' : ''}" draggable="true" data-task="${t.id}">
-              <div class="planning-card-head"><strong>${esc(t.title)}</strong><button class="card-edit" data-edit-task="${t.id}" title="Modifier">✎</button></div>
-              <small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(teamName(t.assignedTo))}</small>
+              <div class="planning-card-head"><div class="planning-card-title">${taskSelectionCheckbox(t)}<strong>${esc(t.title)}</strong></div><button class="card-edit" data-edit-task="${t.id}" title="Modifier">✎</button></div>
+              <small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(taskAssigneeLabel(t))}</small>
               ${V21.renderTaskProgress(t)}
               ${t.scheduledFor ? `<div class="date-chip">Prévue ${formatDate(t.scheduledFor)}</div>` : ''}
-              <footer><span class="owner-pill">${esc(teamName(t.assignedTo))}</span>${priorityBadge(t.priority)}</footer>
+              <footer><span class="owner-pill">${esc(taskAssigneeLabel(t))}</span>${priorityBadge(t.priority)}</footer>
               <div class="card-actions"><button class="mini-action" data-plan="${t.id}">${t.needsPlanning && t.planningStatus === 'unplanned' ? 'Planifier' : 'Déplacer / dater'}</button><button class="mini-action secondary-mini" data-edit-task="${t.id}">Modifier</button></div>
             </article>`).join('') || `<div class="planning-empty">Aucune tâche</div>`}
           </div>
@@ -1270,8 +1273,9 @@ function renderProjectDetail(id) {
             <small>${hiddenDirectTaskCount} tâche${hiddenDirectTaskCount > 1 ? 's' : ''} masquée${hiddenDirectTaskCount > 1 ? 's' : ''} par « Profils affichés ». La progression automatique reste calculée sur toutes les tâches du projet et de son arborescence.</small>
           </div>
         </div>` : ''}
+      ${renderTaskBulkBar(tasks)}
       <div class="task-list">
-        ${tasks.map(t => `<div class="task-row"><button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${statusLabels[t.status]} · ${esc(teamName(t.assignedTo))}${t.scheduledFor ? ` · ${formatDate(t.scheduledFor)}` : ''}</small>${V21.renderTaskProgress(t)}</button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || '<div class="empty-line">Aucune tâche directe dans ce projet.</div>'}
+        ${tasks.map(t => `<div class="task-row">${taskSelectionCheckbox(t)}<button class="checkbox ${t.status === 'completed' ? 'checked' : ''}" data-complete="${t.id}"></button><button class="task-main task-main-button" data-edit-task="${t.id}"><strong>${esc(t.title)}</strong><small>${statusLabels[t.status]} · ${esc(taskAssigneeLabel(t))}${t.scheduledFor ? ` · ${formatDate(t.scheduledFor)}` : ''}</small>${V21.renderTaskProgress(t)}</button>${priorityBadge(t.priority)}<button class="quick-status-btn" data-task-status="${t.id}">${taskQuickLabel(t)}</button><button class="row-action" data-edit-task="${t.id}">Modifier</button></div>`).join('') || '<div class="empty-line">Aucune tâche directe dans ce projet.</div>'}
       </div>
     </section>`;
 
@@ -2009,6 +2013,83 @@ function renderNotifications() {
       ${active.map(n => `<article class="notification-item severity-${n.severity} ${n.read ? 'is-read' : 'is-unread'}" data-notif="${n.id}"><span class="notif-dot"></span><div><div class="notif-title-line"><strong>${esc(n.title)}</strong>${Number(n.count || 1) > 1 ? `<span class="count-badge">×${n.count}</span>` : ''}</div><p>${esc(n.message)}</p><div class="notif-actions">${actionHtml(n)}${!n.read && canManageNotification(n) ? `<button class="quiet-action" data-notif-read="${n.id}">Lu</button>` : ''}${canManageNotification(n) && n.actionType !== 'approval' && n.actionType !== 'plan' && !['deadline','blocker'].includes(n.type) ? `<button class="quiet-action" data-resolve="${n.id}">Résoudre</button>` : ''}</div></div></article>`).join('') || '<div class="empty-state">Aucune notification dans ce filtre.</div>'}
     </div>
   </aside>`;
+}
+
+function selectedTasks() {
+  return state.tasks.filter(t => selectedTaskIds.has(t.id));
+}
+
+function taskSelectionCheckbox(t) {
+  return `<label class="task-bulk-toggle" title="Sélectionner cette tâche pour une modification groupée"><input type="checkbox" data-task-select="${esc(t.id)}" ${selectedTaskIds.has(t.id) ? 'checked' : ''} /><span>✓</span></label>`;
+}
+
+function renderTaskBulkBar(visibleTasks = []) {
+  const editableVisible = visibleTasks.filter(canEditTask);
+  const selectedCount = selectedTasks().length;
+  return `<div class="task-bulk-bar ${selectedCount ? 'has-selection' : ''}">
+    <div><strong>${selectedCount ? `${selectedCount} tâche${selectedCount > 1 ? 's' : ''} sélectionnée${selectedCount > 1 ? 's' : ''}` : 'Sélection multiple'}</strong><small>Dates, personnes, projet, priorité, statut et période en une seule fois.</small></div>
+    <div>
+      ${editableVisible.length ? '<button type="button" class="quiet-action" data-task-select-visible>Tout sélectionner ici</button>' : ''}
+      ${selectedCount ? '<button type="button" class="primary-btn compact-btn" data-bulk-task-edit>Modifier la sélection</button><button type="button" class="quiet-action" data-clear-task-selection>Désélectionner</button>' : ''}
+    </div>
+  </div>`;
+}
+
+function renderBulkTaskModal() {
+  const tasks = selectedTasks();
+  if (!tasks.length) {
+    bulkTaskEditOpen = false;
+    return '';
+  }
+
+  return `<div class="modal-backdrop" id="bulkTaskBackdrop"></div><div class="modal-card form-modal bulk-task-modal" role="dialog" aria-modal="true">
+    <header><div><small>MODIFICATION GROUPÉE</small><h2>${tasks.length} tâche${tasks.length > 1 ? 's' : ''} sélectionnée${tasks.length > 1 ? 's' : ''}</h2></div><button class="icon-btn" id="closeBulkTask">×</button></header>
+    <div class="bulk-task-summary">${tasks.slice(0,6).map(t => `<span>${esc(t.title)}</span>`).join('')}${tasks.length > 6 ? `<span>+${tasks.length - 6} autres</span>` : ''}</div>
+
+    <div class="form-grid">
+      <label class="form-field form-field-full"><span>Personnes affectées</span>
+        <select id="bulkAssigneeMode">
+          <option value="keep">Ne pas modifier</option>
+          <option value="add">Ajouter les personnes sélectionnées</option>
+          <option value="replace">Remplacer par les personnes sélectionnées</option>
+        </select>
+      </label>
+      <div class="form-field form-field-full"><span>Sélection des personnes</span>${taskAssigneePicker([state.currentUser.id], null, 'bulk')}<small>Si les tâches sont rattachées à un projet, seules les personnes autorisées sur ce projet seront appliquées.</small></div>
+
+      <label class="form-field"><span>Dates</span>
+        <select id="bulkDateMode">
+          <option value="keep">Ne pas modifier</option>
+          <option value="set">Appliquer les mêmes dates</option>
+          <option value="clear">Effacer les dates</option>
+        </select>
+      </label>
+      <label class="form-field"><span>Date de début</span><input id="bulkPlannedStart" type="date" /></label>
+      <label class="form-field"><span>Date de fin</span><input id="bulkPlannedEnd" type="date" /></label>
+
+      <label class="form-field"><span>Projet</span>
+        <select id="bulkProject">
+          <option value="__keep__">Ne pas modifier</option>
+          <option value="__none__">Sans projet</option>
+          ${state.projects.filter(p => !p.archived).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}
+        </select>
+      </label>
+
+      <label class="form-field"><span>Priorité</span>
+        <select id="bulkPriority"><option value="__keep__">Ne pas modifier</option>${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select>
+      </label>
+
+      <label class="form-field"><span>Statut</span>
+        <select id="bulkStatus"><option value="__keep__">Ne pas modifier</option>${Object.entries(statusLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select>
+      </label>
+
+      <label class="form-field"><span>Période Roadmap</span>
+        <select id="bulkPlanning"><option value="__keep__">Ne pas modifier</option>${Object.entries(planningLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select>
+      </label>
+    </div>
+
+    <p class="form-note">Seuls les champs choisis sont modifiés. Les autres caractéristiques de chaque tâche restent intactes.</p>
+    <footer><button class="secondary-btn" id="cancelBulkTask">Annuler</button><button class="primary-btn" id="applyBulkTask">Appliquer aux ${tasks.length} tâches</button></footer>
+  </div>`;
 }
 
 function renderPlanningModal(taskId) {
