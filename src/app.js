@@ -3457,6 +3457,12 @@ function bindEvents() {
     });
   }
 
+  document.querySelectorAll('[data-assignee-picker]').forEach(button => button.addEventListener('click', () => {
+    if (button.disabled) return;
+    button.classList.toggle('active');
+    button.setAttribute('aria-pressed', button.classList.contains('active') ? 'true' : 'false');
+  }));
+
   document.querySelector('#projectProgressMode')?.addEventListener('change', e => {
     const input = document.querySelector('#projectManualProgress');
     if (!input || input.type === 'hidden') return;
@@ -3659,8 +3665,20 @@ function bindEvents() {
     const id = e.currentTarget.dataset.task;
     const t = task(id);
     if (!t) return;
-    const previousOwner = t.assignedTo;
-    const assignedTo = document.querySelector('#planOwner')?.value || t.assignedTo;
+
+    const previousAssignees = taskAssigneeIds(t);
+    const assignees = selectedAssigneePickerIds('plan');
+    if (!assignees.length) {
+      window.alert('Sélectionne au moins une personne pour cette tâche.');
+      return;
+    }
+    if (!assignees.every(memberId => taskAssigneeAllowed(t.projectId, memberId))) {
+      window.alert('Toutes les personnes affectées doivent faire partie des participants du projet.');
+      refreshTaskAssigneeAvailability(t.projectId, 'plan');
+      return;
+    }
+    const assignedTo = assignees.includes(t.assignedTo) ? t.assignedTo : assignees[0];
+
     let plannedStart = document.querySelector('#planPlannedStart')?.value || null;
     let plannedEnd = document.querySelector('#planPlannedEnd')?.value || null;
     if (plannedStart && !plannedEnd) plannedEnd = plannedStart;
@@ -3670,21 +3688,41 @@ function bindEvents() {
       document.querySelector('#planPlannedEnd')?.focus();
       return;
     }
+
     moveTask(id, selected);
     t.assignedTo = assignedTo;
+    t.assignees = assignees;
     t.scheduledFor = plannedStart;
     t.dueAt = toDueIso(plannedEnd || '');
     t.plannedStart = plannedStart;
     t.plannedEnd = plannedEnd;
     t.planningStatus = plannedStart ? 'planned' : 'unplanned';
     t.needsPlanning = !plannedStart;
-    if (previousOwner !== assignedTo) addActivity({ projectId:t.projectId, text:`${t.title} assignée à ${teamName(assignedTo)}`, internalTag:TAGS.TASK_ASSIGN });
+
+    if ([...previousAssignees].sort().join('|') !== [...assignees].sort().join('|')) {
+      addActivity({
+        projectId:t.projectId, taskId:t.id,
+        text:`${t.title} · affectation : ${assignees.map(teamName).join(', ')}`,
+        internalTag:TAGS.TASK_ASSIGN
+      });
+      assignees
+        .filter(memberId => !previousAssignees.includes(memberId) && memberId !== state.currentUser.id)
+        .forEach(memberId => upsertNotification({
+          recipientId:memberId, severity:'info', type:'task_assignment',
+          title:'Tâche affectée', message:t.title,
+          actionType:'edit_task', taskId:t.id, projectId:t.projectId,
+          groupKey:`task-assignment:${t.id}:${memberId}`, internalTag:TAGS.NOTIF_ASSIGNMENT, reactivate:true
+        }));
+    }
+
     state.notifications.filter(n => n.taskId === id).forEach(n => {
       n.read = true;
       n.resolved = Boolean(plannedStart);
     });
     planningTaskId = null;
-    persist(TAGS.PLAN_CONFIRM, 'Planification confirmée', { taskId:id, bucket:selected, assignedTo, plannedStart, plannedEnd });
+    persist(TAGS.PLAN_CONFIRM, 'Planification confirmée', {
+      taskId:id, bucket:selected, assignedTo, assignees, plannedStart, plannedEnd
+    });
     render();
   });
 
@@ -3693,8 +3731,8 @@ function bindEvents() {
   document.querySelector('#taskModalBackdrop')?.addEventListener('click', closeTaskModal);
   document.querySelector('#saveTask')?.addEventListener('click', createTaskFromForm);
   document.querySelector('#taskTitle')?.addEventListener('keydown', e => { if (e.key === 'Enter') createTaskFromForm(); });
-  document.querySelector('#taskProject')?.addEventListener('change', e => refreshTaskOwnerAvailability(e.target.value || null));
-  if (taskModalOpen) refreshTaskOwnerAvailability(document.querySelector('#taskProject')?.value || null);
+  document.querySelector('#taskProject')?.addEventListener('change', e => refreshTaskAssigneeAvailability(e.target.value || null, 'task'));
+  if (taskModalOpen) refreshTaskAssigneeAvailability(document.querySelector('#taskProject')?.value || null, 'task');
 
   document.querySelector('#closeProjectModal')?.addEventListener('click', closeProjectModal);
   document.querySelector('#cancelProjectModal')?.addEventListener('click', closeProjectModal);
