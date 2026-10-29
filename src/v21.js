@@ -163,9 +163,22 @@ export function closeProfileMenu() {
   profileMenuOpen = false;
 }
 
+function taskAssigneeIds(task) {
+  return [...new Set([task?.assignedTo, ...(Array.isArray(task?.assignees) ? task.assignees : [])].filter(Boolean))];
+}
+
+function taskAssigneeLabel(state, task) {
+  const ids = taskAssigneeIds(task);
+  return ids
+    .map(id => (state?.team || []).find(member => member.id === id)?.name || id)
+    .filter(Boolean)
+    .join(' · ') || 'Non attribué';
+}
+
 export function taskInScope(state, task) {
   if (!task) return false;
-  return getSelectedProfileIds(state).has(task.assignedTo);
+  const selected = getSelectedProfileIds(state);
+  return taskAssigneeIds(task).some(id => selected.has(id));
 }
 
 export function projectInScope(state, project) {
@@ -178,11 +191,14 @@ export function projectInScope(state, project) {
 export function eventInScope(state, event) {
   if (!event) return false;
   const selected = getSelectedProfileIds(state);
-  if (event.ownerId) return selected.has(event.ownerId);
   if (event.taskId) {
     const t = (state?.tasks || []).find(item => item.id === event.taskId);
-    if (t) return selected.has(t.assignedTo);
+    if (t) return taskAssigneeIds(t).some(id => selected.has(id));
   }
+  if (Array.isArray(event.assigneeIds) && event.assigneeIds.length) {
+    return event.assigneeIds.some(id => selected.has(id));
+  }
+  if (event.ownerId) return selected.has(event.ownerId);
   if (event.projectId) {
     const p = (state?.projects || []).find(item => item.id === event.projectId);
     if (p) return projectInScope(state, p);
@@ -461,7 +477,7 @@ function taskProjectMatchesFilter(state, taskProjectId, filterId) {
 
 function taskMatchesProfileScope(state, task) {
   if (!taskInScope(state, task)) return false;
-  return ganttProfile === 'all' || task.assignedTo === ganttProfile;
+  return ganttProfile === 'all' || taskAssigneeIds(task).includes(ganttProfile);
 }
 
 function projectRelevantToGanttScope(state, project) {
@@ -502,7 +518,7 @@ function projectMemberIdsForGantt(project) {
 function canEditTaskInGantt(state, task) {
   if (!task || !state?.currentUser?.id) return false;
   if (state.currentUser.role === 'admin') return true;
-  if (task.assignedTo === state.currentUser.id) return true;
+  if (taskAssigneeIds(task).includes(state.currentUser.id)) return true;
   const project = (state.projects || []).find(item => item.id === task.projectId);
   return Boolean(project && projectMemberIdsForGantt(project).includes(state.currentUser.id));
 }
@@ -570,7 +586,7 @@ function renderProjectRows(state, project, range, depth = 0) {
     return `<div class="v21-gantt-row task-row-gantt">
       <button type="button" class="v21-gantt-label v21-gantt-open" data-gantt-task-open="${esc(task.id)}" style="--gantt-depth:${depth + 1}">
         <span class="v21-gantt-task-dot">✓</span>
-        <div><strong>${esc(task.title)}</strong><small>${esc((state.team || []).find(m => m.id === task.assignedTo)?.name || 'Non attribué')} · ${progress}% · ${intervalText}</small></div>
+        <div><strong>${esc(task.title)}</strong><small>${esc(taskAssigneeLabel(state, task))} · ${progress}% · ${intervalText}</small></div>
       </button>
       <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id,{ editable:Boolean(interval) && canEditTaskInGantt(state, task) })}</div>
     </div>`;
@@ -616,7 +632,7 @@ export function renderGantt(state, labels = {}) {
     const intervalText = interval ? `${dateKey(interval.start)} → ${dateKey(interval.end)}` : 'À planifier';
     return `<div class="v21-gantt-row task-row-gantt">
       <button type="button" class="v21-gantt-label v21-gantt-open" data-gantt-task-open="${esc(task.id)}">
-        <span class="v21-gantt-task-dot">✓</span><div><strong>${esc(task.title)}</strong><small>Sans projet · ${esc((state.team || []).find(m => m.id === task.assignedTo)?.name || 'Non attribué')} · ${progress}% · ${intervalText}</small></div>
+        <span class="v21-gantt-task-dot">✓</span><div><strong>${esc(task.title)}</strong><small>Sans projet · ${esc(taskAssigneeLabel(state, task))} · ${progress}% · ${intervalText}</small></div>
       </button>
       <div class="v21-gantt-timeline-cell">${renderBar(task.title,interval,range,progress,'task',task.id,{ editable:Boolean(interval) && canEditTaskInGantt(state, task) })}</div>
     </div>`;
