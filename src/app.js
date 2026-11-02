@@ -1097,16 +1097,15 @@ function renderToday() {
 }
 
 function renderPlanning() {
-  const header = pageHeader('Planification', `Organiser le court, moyen et long terme · ${V21.getProfileScopeLabel(state)}`, '<button class="primary-btn" data-action="quick-add">+ Ajouter une tâche</button>');
+  const header = pageHeader(
+    'Planification',
+    `Organiser le court, moyen et long terme · ${V21.getProfileScopeLabel(state)}`,
+    '<button class="primary-btn" data-action="quick-add">+ Ajouter une tâche</button>'
+  );
   const modeSwitch = V21.renderPlanningModeSwitch();
-  if (V21.getPlanningMode() === 'gantt') {
-    return header + modeSwitch + V21.renderGantt(state, { statusLabels, priorityLabels });
-  }
 
-  const buckets = ['backlog','this_week','this_month','next_3_months','later'];
-  const filteredTasks = state.tasks.filter(t => {
+  const baseTasks = state.tasks.filter(t => {
     if (!V21.taskInScope(state, t)) return false;
-    if (t.status === 'completed') return false;
     if (t.projectId && project(t.projectId)?.archived) return false;
     if (planningFilterProject !== 'all' && t.projectId !== planningFilterProject) return false;
     if (planningFilterOwner !== 'all' && !taskAssigneeIds(t).includes(planningFilterOwner)) return false;
@@ -1114,7 +1113,24 @@ function renderPlanning() {
     return true;
   });
 
-  return header + modeSwitch + `
+  const lifecycleCounts = {
+    active: baseTasks.filter(t => taskLifecycleCategory(t) === 'active' && t.status !== 'completed').length,
+    paused: baseTasks.filter(t => taskLifecycleCategory(t) === 'paused').length,
+    sleeping: baseTasks.filter(t => taskLifecycleCategory(t) === 'sleeping').length,
+    archived: baseTasks.filter(t => taskLifecycleCategory(t) === 'archived').length
+  };
+
+  const lifecycleTabs = `
+    <div class="tabs planning-lifecycle-tabs">
+      ${[
+        ['active','Actives'],
+        ['paused','En pause'],
+        ['sleeping','En sommeil'],
+        ['archived','Archivées']
+      ].map(([value,label]) => `<button class="${planningLifecycleFilter === value ? 'active' : ''}" data-planning-lifecycle="${value}">${label} (${lifecycleCounts[value]})</button>`).join('')}
+    </div>`;
+
+  const toolbar = `
     <div class="toolbar">
       <select id="planningProjectFilter">
         <option value="all">Tous les projets</option>
@@ -1128,6 +1144,50 @@ function renderPlanning() {
         <option value="all">Toutes les priorités</option>
         ${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}" ${planningFilterPriority === value ? 'selected' : ''}>${label}</option>`).join('')}
       </select>
+    </div>`;
+
+  if (planningLifecycleFilter !== 'active') {
+    const items = baseTasks
+      .filter(t => taskLifecycleCategory(t) === planningLifecycleFilter)
+      .sort((a,b) => String(taskEndDateKey(b) || '').localeCompare(String(taskEndDateKey(a) || '')));
+
+    return header + modeSwitch + lifecycleTabs + toolbar + renderTaskBulkBar(items) + `
+      <section class="section lifecycle-task-section">
+        <div class="section-title">
+          <div>
+            <h2>${planningLifecycleFilter === 'paused' ? 'Tâches en pause' : planningLifecycleFilter === 'sleeping' ? 'Tâches en sommeil' : 'Tâches archivées'}</h2>
+            <small>${planningLifecycleFilter === 'archived' ? 'Ces tâches ne sont plus affichées dans les vues de travail actives.' : 'Ces tâches restent conservées mais sont retirées de la planification active.'}</small>
+          </div>
+        </div>
+        <div class="task-list">
+          ${items.map(t => `<div class="task-row lifecycle-task-row">
+            ${taskSelectionCheckbox(t)}
+            <button class="task-main task-main-button" data-edit-task="${t.id}">
+              <strong>${esc(t.title)}</strong>
+              <small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(taskAssigneeLabel(t))} · ${statusLabels[t.status] || t.status}${taskEndDateKey(t) ? ` · ${formatDate(taskEndDateKey(t))}` : ''}</small>
+              ${V21.renderTaskProgress(t)}
+            </button>
+            ${priorityBadge(t.priority)}
+            ${planningLifecycleFilter === 'archived'
+              ? `<button class="row-action" data-restore-task="${t.id}">Restaurer</button>`
+              : `<button class="row-action" data-task-lifecycle="${t.id}" data-task-lifecycle-status="in_progress">Réactiver</button>`}
+            <button class="row-action" data-edit-task="${t.id}">Modifier</button>
+          </div>`).join('') || '<div class="empty-line">Aucune tâche dans cette catégorie.</div>'}
+        </div>
+      </section>`;
+  }
+
+  if (V21.getPlanningMode() === 'gantt') {
+    return header + modeSwitch + lifecycleTabs + toolbar + V21.renderGantt(state, { statusLabels, priorityLabels });
+  }
+
+  const buckets = ['backlog','this_week','this_month','next_3_months','later'];
+  const filteredTasks = baseTasks.filter(t => taskLifecycleCategory(t) === 'active' && t.status !== 'completed');
+
+  return header + modeSwitch + lifecycleTabs + toolbar + `
+    <div class="planning-rule-note">
+      <strong>Classement automatique par date</strong>
+      <small>Sans date = À organiser. Dès qu’une date est définie, la tâche rejoint automatiquement Cette semaine, Ce mois, 1 à 3 mois ou Plus tard.</small>
     </div>
     ${renderTaskBulkBar(filteredTasks)}
     <div class="mobile-roadmap-tabs">${buckets.map(bucket => `<button class="${mobilePlanningBucket === bucket ? 'active' : ''}" data-mobile-bucket="${bucket}">${planningLabels[bucket]}</button>`).join('')}</div>
@@ -1141,15 +1201,16 @@ function renderPlanning() {
               <div class="planning-card-head"><div class="planning-card-title">${taskSelectionCheckbox(t)}<strong>${esc(t.title)}</strong></div><button class="card-edit" data-edit-task="${t.id}" title="Modifier">✎</button></div>
               <small>${esc(project(t.projectId)?.name || 'Sans projet')} · ${esc(taskAssigneeLabel(t))}</small>
               ${V21.renderTaskProgress(t)}
-              ${t.scheduledFor ? `<div class="date-chip">Prévue ${formatDate(t.scheduledFor)}</div>` : ''}
+              ${taskPlanDateKey(t) ? `<div class="date-chip">Prévue ${formatDate(taskPlanDateKey(t))}</div>` : '<div class="date-chip is-unplanned">Date à définir</div>'}
               <footer><span class="owner-pill">${esc(taskAssigneeLabel(t))}</span>${priorityBadge(t.priority)}</footer>
-              <div class="card-actions"><button class="mini-action" data-plan="${t.id}">${t.needsPlanning && t.planningStatus === 'unplanned' ? 'Planifier' : 'Déplacer / dater'}</button><button class="mini-action secondary-mini" data-edit-task="${t.id}">Modifier</button></div>
-            </article>`).join('') || `<div class="planning-empty">Aucune tâche</div>`}
+              <div class="card-actions"><button class="mini-action" data-plan="${t.id}">${t.needsPlanning ? 'Planifier' : 'Modifier les dates'}</button><button class="mini-action secondary-mini" data-edit-task="${t.id}">Modifier</button></div>
+            </article>`).join('') || '<div class="planning-empty">Aucune tâche</div>'}
           </div>
         </section>`;
       }).join('')}
     </div>`;
 }
+
 function renderProjectTreeNode(p, visibleSet, depth = 0) {
   const children = projectChildren(p.id).filter(child => visibleSet.has(child.id));
   const hasChildren = children.length > 0;
