@@ -2411,7 +2411,6 @@ function applyBulkTaskEdits() {
 function renderPlanningModal(taskId) {
   const t = task(taskId);
   if (!t) return '';
-  const selectedBucket = t.planningBucket || 'backlog';
   return `<div class="modal-backdrop" id="modalBackdrop"></div><div class="modal-card form-modal" role="dialog" aria-modal="true">
     <header><div><small>${t.needsPlanning ? 'NOUVEL ÉLÉMENT' : 'PLANIFICATION'}</small><h2>${t.needsPlanning ? 'Planifier cette tâche' : 'Déplacer ou dater la tâche'}</h2></div><button class="icon-btn" id="closePlan">×</button></header>
     <div class="modal-task"><strong>${esc(t.title)}</strong><span>${esc(project(t.projectId)?.name || 'Sans projet')}</span></div>
@@ -2420,10 +2419,11 @@ function renderPlanningModal(taskId) {
       <label class="form-field"><span>Date de début (optionnelle)</span><input id="planPlannedStart" type="date" value="${esc(t.plannedStart || t.scheduledFor || '')}" /></label>
       <label class="form-field"><span>Date de fin (optionnelle)</span><input id="planPlannedEnd" type="date" value="${esc(t.plannedEnd || dateKey(t.dueAt) || t.plannedStart || t.scheduledFor || '')}" /></label>
     </div>
-    <fieldset class="plan-options"><legend>Période Roadmap</legend>
-      ${['this_week','this_month','next_3_months','later','backlog'].map(bucket => `<label><input type="radio" name="planBucket" value="${bucket}" ${bucket === selectedBucket ? 'checked' : ''}/><span>${planningLabels[bucket]}</span></label>`).join('')}
-    </fieldset>
-    ${t.suggestedBucket && t.needsPlanning ? `<p class="ai-suggestion">Suggestion IA : <strong>${planningLabels[t.suggestedBucket]}</strong></p>` : ''}
+    <div class="planning-rule-note modal-rule-note">
+      <strong>Période calculée automatiquement</strong>
+      <small>La date choisie détermine automatiquement la catégorie Roadmap. Sans date, la tâche reste « À organiser ».</small>
+    </div>
+    ${t.suggestedBucket && t.needsPlanning ? `<p class="ai-suggestion">Suggestion IA initiale : <strong>${planningLabels[t.suggestedBucket]}</strong></p>` : ''}
     <footer><button class="secondary-btn" id="cancelPlan">Annuler</button><button class="primary-btn" id="confirmPlan" data-task="${t.id}">Enregistrer</button></footer>
   </div>`;
 }
@@ -2434,13 +2434,13 @@ function renderTaskModal() {
   const assignees = existing ? taskAssigneeIds(existing) : [state.currentUser.id];
   const priority = existing?.priority || 'medium';
   const status = existing?.status || 'todo';
-  const bucket = existing?.planningBucket || 'this_week';
   const plannedStart = existing?.plannedStart || existing?.scheduledFor || (!existing && currentPage === 'today' ? currentDateKey() : '');
   const plannedEnd = existing?.plannedEnd || dateKey(existing?.dueAt) || plannedStart || '';
 
   return `<div class="modal-backdrop" id="taskModalBackdrop"></div><div class="modal-card form-modal" role="dialog" aria-modal="true">
     <header><div><small>${existing ? 'MODIFIER LA TÂCHE' : 'NOUVELLE TÂCHE'}</small><h2>${existing ? esc(existing.title) : 'Ajouter une tâche'}</h2></div><button class="icon-btn" id="closeTaskModal">×</button></header>
     ${existing?.sourceIdeaId ? `<button class="task-origin-idea" data-open-idea-origin="${esc(existing.sourceIdeaId)}">💡 Origine : idée SpeedArti →</button>` : ''}
+    ${existing && taskIsArchived(existing) ? '<div class="archive-banner"><strong>Tâche archivée</strong><span>Elle n’apparaît plus dans les vues actives.</span></div>' : ''}
     <div class="form-grid">
       <label class="form-field form-field-full"><span>Titre</span><input id="taskTitle" type="text" value="${esc(existing?.title || '')}" placeholder="Ex. Tester la nouvelle intégration" maxlength="120" /></label>
       <label class="form-field form-field-full"><span>Projet</span><select id="taskProject"><option value="">Sans projet</option>${state.projects.filter(p => !p.archived || p.id === defaultProject).map(p => `<option value="${p.id}" ${defaultProject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
@@ -2448,12 +2448,18 @@ function renderTaskModal() {
       <label class="form-field"><span>Priorité</span><select id="taskPriority">${Object.entries(priorityLabels).map(([value,label]) => `<option value="${value}" ${value === priority ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <label class="form-field"><span>État</span><select id="taskStatus">${Object.entries(statusLabels).map(([value,label]) => `<option value="${value}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <div class="form-field form-field-full"><span>Progression automatique</span>${V21.renderTaskProgress(existing || { status }, false)}<small>0 % tant que la tâche n’est pas terminée · 100 % une fois terminée.</small></div>
-      <label class="form-field"><span>Période Roadmap</span><select id="taskPlanning">${['backlog','this_week','this_month','next_3_months','later'].map(value => `<option value="${value}" ${value === bucket ? 'selected' : ''}>${planningLabels[value]}</option>`).join('')}</select></label>
+      <div class="form-field"><span>Période Roadmap</span><div class="form-readonly">${existing?.planningBucket ? planningLabels[existing.planningBucket] : 'Automatique selon la date'}</div><small>Calculée automatiquement à partir de la date.</small></div>
       <label class="form-field"><span>Date de début</span><input id="taskPlannedStart" type="date" value="${esc(plannedStart)}" /></label>
       <label class="form-field"><span>Date de fin</span><input id="taskPlannedEnd" type="date" value="${esc(plannedEnd)}" /></label>
       <div class="form-field form-field-full"><small>Les dates sont optionnelles. Sans date, la tâche reste « À planifier ». Une tâche sur une seule journée peut avoir la même date de début et de fin.</small></div>
     </div>
-    <footer><button class="secondary-btn" id="cancelTaskModal">Annuler</button><button class="primary-btn" id="saveTask">${existing ? 'Enregistrer' : 'Ajouter la tâche'}</button></footer>
+    <footer class="task-modal-footer">
+      <div class="task-lifecycle-actions">
+        ${existing && !taskIsArchived(existing) ? `<button class="secondary-btn" data-task-lifecycle="${existing.id}" data-task-lifecycle-status="paused">Pause</button><button class="secondary-btn" data-task-lifecycle="${existing.id}" data-task-lifecycle-status="sleeping">Sommeil</button><button class="archive-btn" data-archive-task="${existing.id}">Archiver</button>` : ''}
+        ${existing && taskIsArchived(existing) ? `<button class="secondary-btn" data-restore-task="${existing.id}">Restaurer</button>` : ''}
+      </div>
+      <div><button class="secondary-btn" id="cancelTaskModal">Annuler</button><button class="primary-btn" id="saveTask">${existing ? 'Enregistrer' : 'Ajouter la tâche'}</button></div>
+    </footer>
   </div>`;
 }
 
