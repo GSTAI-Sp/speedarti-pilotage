@@ -657,13 +657,13 @@ export function renderGantt(state, labels = {}) {
     .join('');
 
   const projectOptions = (state?.projects || [])
-    .filter(p => !p.archived && projectRelevantToGanttScope(state,p))
+    .filter(p => !p.archived && !['paused','sleeping'].includes(p.status) && projectRelevantToGanttScope(state,p))
     .sort((a,b) => String(a.name || '').localeCompare(String(b.name || ''),'fr'))
     .map(p => `<option value="${esc(p.id)}" ${ganttProject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)
     .join('');
 
   const subprojectOptions = (state?.projects || [])
-    .filter(p => !p.archived && p.parentProjectId && projectRelevantToGanttScope(state,p))
+    .filter(p => !p.archived && !['paused','sleeping'].includes(p.status) && p.parentProjectId && projectRelevantToGanttScope(state,p))
     .filter(p => ganttProject === 'all' || p.id === ganttProject || descendantIds(state, ganttProject).includes(p.id))
     .sort((a,b) => String(a.name || '').localeCompare(String(b.name || ''),'fr'))
     .map(p => `<option value="${esc(p.id)}" ${ganttSubproject === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)
@@ -689,7 +689,7 @@ export function renderGantt(state, labels = {}) {
           <input id="v21GanttSearch" value="${esc(ganttSearch)}" placeholder="Filtrer une tâche…" />
           <select id="v21GanttStatus">
             <option value="all">Tous les statuts</option>
-            ${Object.entries(labels.statusLabels || {}).map(([value,label]) => `<option value="${esc(value)}" ${ganttStatus === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}
+            ${Object.entries(labels.statusLabels || {}).filter(([value]) => !['paused','sleeping'].includes(value)).map(([value,label]) => `<option value="${esc(value)}" ${ganttStatus === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}
           </select>
           <select id="v21GanttPriority">
             <option value="all">Toutes les priorités</option>
