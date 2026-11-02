@@ -361,6 +361,12 @@ function taskIsActiveWork(t) {
   return taskLifecycleCategory(t) === 'active' && t?.status !== 'completed';
 }
 
+function taskProjectAllowsActiveWork(t) {
+  if (!t?.projectId) return true;
+  const p = project(t.projectId);
+  return !p || (!p.archived && !['paused','sleeping'].includes(p.status));
+}
+
 function normalizeTaskLifecycle(t) {
   if (!t) return false;
   let changed = false;
@@ -572,7 +578,7 @@ function refreshSmartNotifications() {
       if (!stillActive) { n.resolved = true; n.resolvedAt = new Date().toISOString(); changed = true; trace(TAGS.NOTIF_RESOLVE, 'Alerte blocage résolue automatiquement', { notificationId:n.id, projectId:n.projectId }); }
     }
   });
-  state.tasks.filter(t => taskAssigneeIds(t).includes(state.currentUser.id) && taskIsActiveWork(t) && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).forEach(t => {
+  state.tasks.filter(t => taskAssigneeIds(t).includes(state.currentUser.id) && taskIsActiveWork(t) && taskProjectAllowsActiveWork(t) && t.dueAt && new Date(t.dueAt) < new Date()).forEach(t => {
     const key = `deadline:${t.id}`;
     const before = state.notifications.find(n => isMyNotification(n) && !n.resolved && n.groupKey === key);
     upsertNotification({ severity:'warning', type:'deadline', title:'Échéance dépassée', message:`${t.title} · échéance ${formatDate(t.dueAt)}`, actionType:'edit_task', taskId:t.id, projectId:t.projectId, groupKey:key, internalTag:TAGS.NOTIF_DEADLINE });
@@ -1027,13 +1033,13 @@ function teamDailySummary(reportDate) {
 // PILOT-SEC-002 — l’interface de production n’expose plus les outils de simulation/réinitialisation de démo.
 function renderToday() {
   const today = currentDateKey();
-  const myTasks = state.tasks.filter(t => V21.taskInScope(state, t) && t.scheduledFor === today && taskIsActiveWork(t) && (!t.projectId || !project(t.projectId)?.archived));
+  const myTasks = state.tasks.filter(t => V21.taskInScope(state, t) && t.scheduledFor === today && taskIsActiveWork(t) && taskProjectAllowsActiveWork(t));
   const blocked = state.projects.filter(p => V21.projectInScope(state, p) && !p.archived && !['paused','sleeping','completed'].includes(p.status) && (p.status === 'blocked' || p.blocker)).slice(0, 3);
-  const toPlan = state.tasks.filter(t => V21.taskInScope(state, t) && taskIsActiveWork(t) && t.needsPlanning && t.planningStatus === 'unplanned' && (!t.projectId || !project(t.projectId)?.archived)).length;
+  const toPlan = state.tasks.filter(t => V21.taskInScope(state, t) && taskIsActiveWork(t) && taskProjectAllowsActiveWork(t) && t.needsPlanning && t.planningStatus === 'unplanned').length;
   const approvals = pendingValidationCount();
   const events = state.calendarEvents.filter(e => e.at && e.at.startsWith(today) && V21.eventInScope(state, e));
 
-  const overdue = state.tasks.filter(t => V21.taskInScope(state, t) && taskIsActiveWork(t) && t.dueAt && new Date(t.dueAt) < new Date() && (!t.projectId || !project(t.projectId)?.archived)).length;
+  const overdue = state.tasks.filter(t => V21.taskInScope(state, t) && taskIsActiveWork(t) && taskProjectAllowsActiveWork(t) && t.dueAt && new Date(t.dueAt) < new Date()).length;
   const activeBlockers = state.projects.filter(p => V21.projectInScope(state, p) && !p.archived && p.blocker && !['completed','paused','sleeping'].includes(p.status)).length;
   const reportSummary = teamDailySummary(today);
   return pageHeader(`Bonjour ${state.currentUser.name || teamName(state.currentUser.id)}`, `${longDateLabel(today)} · ${V21.getProfileScopeLabel(state)}`) + `
@@ -1072,7 +1078,7 @@ function renderToday() {
           <div class="section-title"><h2>Profils sélectionnés</h2><button class="text-button" id="openTeamWorkload">Voir la charge →</button></div>
           <div class="team-list">
             ${selectedMembers().map(m => {
-              const pending = state.tasks.filter(t => taskAssigneeIds(t).includes(m.id) && taskIsActiveWork(t) && (!t.projectId || !project(t.projectId)?.archived)).length;
+              const pending = state.tasks.filter(t => taskAssigneeIds(t).includes(m.id) && taskIsActiveWork(t) && taskProjectAllowsActiveWork(t)).length;
               const blockers = state.projects.filter(p => p.owner === m.id && p.blocker).length;
               return `<button class="team-row team-row-button" data-team-planning="${m.id}"><div><strong>${esc(m.name)}</strong><small>${esc(m.role)}</small></div><span>${pending} tâches · ${blockers ? `${blockers} blocage` : 'Tout va bien'} →</span></button>`;
             }).join('')}
@@ -1321,7 +1327,7 @@ function renderProjectDetail(id) {
   const p = project(id);
   if (!p || !V21.projectInScope(state, p)) { selectedProjectId = null; return renderProjects(); }
 
-  const allDirectTasks = state.tasks.filter(t => t.projectId === id && !taskIsArchived(t));
+  const allDirectTasks = state.tasks.filter(t => t.projectId === id && (!taskIsArchived(t) || p.archived));
   const tasks = allDirectTasks.filter(t => V21.taskInScope(state, t));
   const hiddenDirectTaskCount = Math.max(0, allDirectTasks.length - tasks.length);
   const docs = allDocumentRefs().filter(d => d.projectId === id);
@@ -2648,7 +2654,7 @@ function renderDeferModal(taskId) {
 
 function renderTeamWorkloadModal() {
   const cards = selectedMembers().map(m => {
-    const tasks = state.tasks.filter(t => taskAssigneeIds(t).includes(m.id) && taskIsActiveWork(t) && (!t.projectId || !project(t.projectId)?.archived));
+    const tasks = state.tasks.filter(t => taskAssigneeIds(t).includes(m.id) && taskIsActiveWork(t) && taskProjectAllowsActiveWork(t));
     const today = tasks.filter(t => t.scheduledFor === currentDateKey()).length;
     const overdue = tasks.filter(t => t.dueAt && new Date(t.dueAt) < new Date()).length;
     const active = tasks.filter(t => t.status === 'in_progress').length;
