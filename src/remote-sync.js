@@ -349,6 +349,8 @@
         plannedEnd: row.planned_end,
         sortOrder: Number(row.sort_order || 0),
         completedAt: row.completed_at,
+        archivedAt: row.archived_at || null,
+        archived: Boolean(row.archived_at),
         sourceType: row.source_type,
         sourceAgent: agentClient(row.source_agent_id),
         sourceIdeaId: row.source_idea_id || null,
@@ -703,7 +705,8 @@
       planned_start: t.plannedStart || null,
       planned_end: t.plannedEnd || null,
       sort_order: Number(t.sortOrder || 0),
-      completed_at: t.completedAt || null
+      completed_at: t.completedAt || null,
+      archived_at: t.archivedAt || null
     }));
     const saved = await upsertReturning('tasks', rows);
     remember(maps.tasksByClient, maps.tasksByUuid, saved);
