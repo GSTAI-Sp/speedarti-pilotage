@@ -1106,7 +1106,10 @@ function renderPlanning() {
 
   const baseTasks = state.tasks.filter(t => {
     if (!V21.taskInScope(state, t)) return false;
-    if (t.projectId && project(t.projectId)?.archived) return false;
+    if (t.projectId) {
+      const parentProject = project(t.projectId);
+      if (parentProject?.archived || ['paused','sleeping'].includes(parentProject?.status)) return false;
+    }
     if (planningFilterProject !== 'all' && t.projectId !== planningFilterProject) return false;
     if (planningFilterOwner !== 'all' && !taskAssigneeIds(t).includes(planningFilterOwner)) return false;
     if (planningFilterPriority !== 'all' && t.priority !== planningFilterPriority) return false;
@@ -1557,8 +1560,8 @@ function renderCalendar() {
   const endWeek = endOfWeek(ref);
   const events = [
     ...state.calendarEvents.map(e => ({...e, source:'google', label:e.calendarName || 'Google Calendar'})),
-    ...state.tasks.filter(t => t.scheduledFor).map(t => ({ id:`scheduled-${t.id}`, taskId:t.id, ownerId:t.assignedTo, projectId:t.projectId, at:dateAtHourIso(t.scheduledFor, 9), title:t.title, source:'SpeedArti', label:'Tâche planifiée' })),
-    ...state.tasks.filter(t => t.dueAt).map(t => ({ id:`due-${t.id}`, taskId:t.id, ownerId:t.assignedTo, projectId:t.projectId, at:t.dueAt, title:t.title, source:'SpeedArti', label:'Échéance' }))
+    ...state.tasks.filter(t => t.scheduledFor && taskIsActiveWork(t) && (!t.projectId || (!project(t.projectId)?.archived && !['paused','sleeping'].includes(project(t.projectId)?.status)))).map(t => ({ id:`scheduled-${t.id}`, taskId:t.id, ownerId:t.assignedTo, assigneeIds:taskAssigneeIds(t), projectId:t.projectId, at:dateAtHourIso(t.scheduledFor, 9), title:t.title, source:'SpeedArti', label:'Tâche planifiée' })),
+    ...state.tasks.filter(t => t.dueAt && taskIsActiveWork(t) && (!t.projectId || (!project(t.projectId)?.archived && !['paused','sleeping'].includes(project(t.projectId)?.status)))).map(t => ({ id:`due-${t.id}`, taskId:t.id, ownerId:t.assignedTo, assigneeIds:taskAssigneeIds(t), projectId:t.projectId, at:t.dueAt, title:t.title, source:'SpeedArti', label:'Échéance' }))
   ].filter(e => e.at && V21.eventInScope(state, e)).sort((a,b) => new Date(a.at)-new Date(b.at));
 
   const visible = events.filter(e => {
@@ -2122,7 +2125,7 @@ function renderMore() {
 }
 
 function renderQuickActionModal() {
-  const unplanned = state.tasks.find(t => V21.taskInScope(state, t) && t.needsPlanning && t.planningStatus === 'unplanned');
+  const unplanned = state.tasks.find(t => V21.taskInScope(state, t) && taskIsActiveWork(t) && t.needsPlanning && t.planningStatus === 'unplanned' && (!t.projectId || (!project(t.projectId)?.archived && !['paused','sleeping'].includes(project(t.projectId)?.status))));
   const approval = pendingApprovals()[0];
   return `<div class="modal-backdrop" id="quickActionBackdrop"></div><div class="quick-action-modal" role="dialog" aria-modal="true">
     <header><div><small>ACTIONS RAPIDES</small><h2>Que veux-tu faire ?</h2></div><button class="icon-btn" id="closeQuickAction">×</button></header>
@@ -3479,7 +3482,7 @@ function openQuickAction() {
 }
 function closeQuickAction() { quickActionOpen=false; render(); }
 function runQuickAction(action) {
-  const unplanned = state.tasks.find(t => t.needsPlanning && t.planningStatus === 'unplanned');
+  const unplanned = state.tasks.find(t => taskIsActiveWork(t) && t.needsPlanning && t.planningStatus === 'unplanned' && (!t.projectId || (!project(t.projectId)?.archived && !['paused','sleeping'].includes(project(t.projectId)?.status))));
   const approval = pendingApprovals()[0];
   quickActionOpen = false;
   if (action === 'task') return openTaskModal();
@@ -4490,7 +4493,7 @@ function updateSearch(query) {
   if (!q) { target.innerHTML = '<p class="search-hint">Projet, tâche, document, compte rendu ou activité.</p>'; return; }
   const results = [
     ...state.projects.filter(x => V21.projectInScope(state, x) && x.name.toLowerCase().includes(q)).map(x => ({ type:'Projet', title:x.name, action:`project:${x.id}` })),
-    ...state.tasks.filter(x => V21.taskInScope(state, x) && x.title.toLowerCase().includes(q)).map(x => ({ type:'Tâche', title:x.title, action:`task:${x.id}` })),
+    ...state.tasks.filter(x => V21.taskInScope(state, x) && !taskIsArchived(x) && x.title.toLowerCase().includes(q)).map(x => ({ type:'Tâche', title:x.title, action:`task:${x.id}` })),
     ...state.documents.filter(x => V21.documentInScope(state, x) && x.name.toLowerCase().includes(q)).map(x => ({ type:'Document', title:x.name, action:'documents' })),
     ...state.activity.filter(x => V21.activityInScope(state, x) && `${x.actor || ''} ${x.text || ''}`.toLowerCase().includes(q)).map(x => ({ type:'Activité', title:x.text, action:'activity' })),
     ...state.dailyReports.filter(x => V21.reportInScope(state, x) && `${teamName(x.personId)} ${x.summary || ''} ${(x.achievements || []).join(' ')} ${(x.blockers || []).join(' ')}`.toLowerCase().includes(q)).map(x => ({ type:'Compte rendu', title:`${teamName(x.personId)} · ${formatDate(x.reportDate)} · ${x.summary}`, action:'reports' }))
