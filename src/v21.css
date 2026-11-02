@@ -153,3 +153,30 @@
   .task-bulk-toggle{width:30px;height:30px}
   .bulk-task-modal{width:calc(100vw - 12px);max-height:94vh}
 }
+
+
+/* V21.6 — cycles Pause / Sommeil / Archives et classement par date */
+.status-sleeping{color:#6b4f2f;background:#f7efe2;border:1px solid #e7d4b4}
+.planning-lifecycle-tabs{margin-top:10px}
+.planning-rule-note{display:flex;align-items:flex-start;gap:10px;margin:8px 0 12px;padding:10px 12px;border:1px solid #cfe0f4;border-radius:10px;background:#f6faff}
+.planning-rule-note strong{display:block;color:#244b78;font-size:10px;white-space:nowrap}
+.planning-rule-note small{display:block;color:#6b8198;font-size:9px;line-height:1.45}
+.modal-rule-note{margin:0 18px 12px}
+.form-readonly{min-height:38px;display:flex;align-items:center;padding:0 10px;border:1px solid #e0e7ef;border-radius:8px;background:#f8fafc;color:#35516e;font-size:11px;font-weight:750}
+.date-chip.is-unplanned{border-color:#ead7af;background:#fffaf0;color:#9a6a2b}
+.lifecycle-task-section .section-title small{display:block;margin-top:3px;color:#718397;font-size:9px}
+.lifecycle-task-row{border-left:3px solid #c7d5e5}
+.task-modal-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.task-modal-footer>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.task-lifecycle-actions .secondary-btn{min-height:38px}
+.task-lifecycle-actions .archive-btn{height:38px}
+.status-paused+.priority-badge,.status-sleeping+.priority-badge{opacity:.8}
+
+@media(max-width:700px){
+  .planning-rule-note{display:block}
+  .planning-rule-note strong{margin-bottom:4px;white-space:normal}
+  .task-modal-footer{align-items:stretch}
+  .task-modal-footer>div{width:100%}
+  .task-modal-footer>div:last-child{justify-content:flex-end}
+  .task-lifecycle-actions .secondary-btn,.task-lifecycle-actions .archive-btn{flex:1}
+}
