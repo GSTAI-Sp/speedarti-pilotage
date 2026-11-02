@@ -258,6 +258,12 @@ function taskIsActivePlanning(task) {
     && !['paused','sleeping'].includes(task.status);
 }
 
+function taskProjectIsActive(state, task) {
+  if (!task?.projectId) return true;
+  const project = (state?.projects || []).find(item => item.id === task.projectId);
+  return !project || (!project.archived && !['paused','sleeping'].includes(project.status));
+}
+
 function projectChildren(state, projectId) {
   return (state?.projects || []).filter(p => p.parentProjectId === projectId);
 }
@@ -457,7 +463,7 @@ function projectInterval(state, projectId) {
 
   const ids = new Set([projectId, ...descendantIds(state, projectId)]);
   const intervals = (state?.tasks || [])
-    .filter(task => ids.has(task.projectId) && taskIsActivePlanning(task))
+    .filter(task => ids.has(task.projectId) && taskIsActivePlanning(task) && taskProjectIsActive(state, task))
     .map(taskInterval)
     .filter(Boolean);
   if (!intervals.length) return null;
@@ -494,11 +500,11 @@ function projectRelevantToGanttScope(state, project) {
   if (!project) return false;
   if (projectInScope(state, project) && (ganttProfile === 'all' || project.owner === ganttProfile)) return true;
   const ids = new Set([project.id, ...descendantIds(state, project.id)]);
-  return (state?.tasks || []).some(task => ids.has(task.projectId) && taskIsActivePlanning(task) && taskMatchesProfileScope(state, task));
+  return (state?.tasks || []).some(task => ids.has(task.projectId) && taskIsActivePlanning(task) && taskProjectIsActive(state, task) && taskMatchesProfileScope(state, task));
 }
 
 function taskMatchesGantt(state, task) {
-  if (!taskIsActivePlanning(task)) return false;
+  if (!taskIsActivePlanning(task) || !taskProjectIsActive(state, task)) return false;
   if (!taskMatchesProfileScope(state, task)) return false;
   if (task.projectId) {
     const p = (state?.projects || []).find(item => item.id === task.projectId);
