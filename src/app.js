@@ -2234,9 +2234,7 @@ function renderBulkTaskModal() {
         <select id="bulkStatus"><option value="__keep__">Ne pas modifier</option>${Object.entries(statusLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select>
       </label>
 
-      <label class="form-field"><span>Période Roadmap</span>
-        <select id="bulkPlanning"><option value="__keep__">Ne pas modifier</option>${Object.entries(planningLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select>
-      </label>
+      <div class="form-field"><span>Période Roadmap</span><div class="form-readonly">Automatique selon les dates</div><small>Les dates communes reclassent automatiquement toutes les tâches sélectionnées.</small></div>
     </div>
 
     <p class="form-note">Seuls les champs choisis sont modifiés. Les autres caractéristiques de chaque tâche restent intactes.</p>
@@ -2274,7 +2272,7 @@ function applyBulkTaskEdits() {
   const projectValue = document.querySelector('#bulkProject')?.value || '__keep__';
   const priority = document.querySelector('#bulkPriority')?.value || '__keep__';
   const status = document.querySelector('#bulkStatus')?.value || '__keep__';
-  const planningBucket = document.querySelector('#bulkPlanning')?.value || '__keep__';
+
 
   if (assigneeMode !== 'keep' && !bulkAssignees.length) {
     window.alert('Sélectionne au moins une personne pour modifier les affectations.');
@@ -2350,12 +2348,13 @@ function applyBulkTaskEdits() {
     }
 
     if (priority !== '__keep__') t.priority = priority;
-    if (planningBucket !== '__keep__') t.planningBucket = planningBucket;
     if (status !== '__keep__') {
       t.status = status;
       t.completedAt = status === 'completed' ? (t.completedAt || new Date().toISOString()) : null;
     }
 
+    syncTaskPlanningFromDates(t);
+    normalizeTaskLifecycle(t);
     t.updatedAt = new Date().toISOString();
     updated.push(t);
 
@@ -2394,8 +2393,7 @@ function applyBulkTaskEdits() {
     plannedEnd,
     project:projectValue,
     priority,
-    status,
-    planningBucket
+    status
   });
 
   selectedTaskIds = new Set(skipped.map(t => t.id));
@@ -2970,7 +2968,6 @@ function createTaskFromForm() {
   const assignees = selectedAssigneePickerIds('task');
   const priority = document.querySelector('#taskPriority')?.value || 'medium';
   const status = document.querySelector('#taskStatus')?.value || 'todo';
-  const planningBucket = document.querySelector('#taskPlanning')?.value || 'backlog';
 
   if (!assignees.length) {
     window.alert('Sélectionne au moins une personne pour cette tâche.');
@@ -2998,6 +2995,7 @@ function createTaskFromForm() {
   const dueAt = toDueIso(plannedEnd || '');
   const planningStatus = plannedStart ? 'planned' : 'unplanned';
   const needsPlanning = !plannedStart;
+  const planningBucket = plannedStart ? planningBucketForDate(plannedStart) : 'backlog';
 
   if (taskEditId) {
     const existing = task(taskEditId);
@@ -3017,6 +3015,8 @@ function createTaskFromForm() {
       updatedAt: new Date().toISOString()
     });
 
+    syncTaskPlanningFromDates(existing);
+    normalizeTaskLifecycle(existing);
     V21.recalculateAutomaticProgress(state);
     addActivity({ projectId, taskId:existing.id, text: `Tâche modifiée : ${title}`, internalTag: TAGS.TASK_EDIT });
 
@@ -3057,6 +3057,8 @@ function createTaskFromForm() {
       completedAt:status === 'completed' ? new Date().toISOString() : null
     };
 
+    syncTaskPlanningFromDates(newTask);
+    normalizeTaskLifecycle(newTask);
     state.tasks.push(newTask);
     V21.recalculateAutomaticProgress(state);
     addActivity({
@@ -3901,8 +3903,8 @@ async function updateTaskDatesFromGantt(taskId, startDate, endDate, mode = 'move
   t.plannedEnd = endDate;
   t.scheduledFor = startDate;
   t.dueAt = toDueIso(endDate);
-  t.planningStatus = 'planned';
-  t.needsPlanning = false;
+  syncTaskPlanningFromDates(t);
+  normalizeTaskLifecycle(t);
   t.updatedAt = new Date().toISOString();
 
   V21.recalculateAutomaticProgress(state);
@@ -4202,7 +4204,6 @@ function bindEvents() {
   document.querySelector('#cancelPlan')?.addEventListener('click', () => { planningTaskId = null; render(); });
   document.querySelector('#modalBackdrop')?.addEventListener('click', () => { planningTaskId = null; render(); });
   document.querySelector('#confirmPlan')?.addEventListener('click', e => {
-    const selected = document.querySelector('input[name="planBucket"]:checked')?.value || 'backlog';
     const id = e.currentTarget.dataset.task;
     const t = task(id);
     if (!t) return;
@@ -4230,15 +4231,14 @@ function bindEvents() {
       return;
     }
 
-    moveTask(id, selected);
     t.assignedTo = assignedTo;
     t.assignees = assignees;
     t.scheduledFor = plannedStart;
     t.dueAt = toDueIso(plannedEnd || '');
     t.plannedStart = plannedStart;
     t.plannedEnd = plannedEnd;
-    t.planningStatus = plannedStart ? 'planned' : 'unplanned';
-    t.needsPlanning = !plannedStart;
+    syncTaskPlanningFromDates(t);
+    normalizeTaskLifecycle(t);
 
     if ([...previousAssignees].sort().join('|') !== [...assignees].sort().join('|')) {
       addActivity({
@@ -4262,7 +4262,7 @@ function bindEvents() {
     });
     planningTaskId = null;
     persist(TAGS.PLAN_CONFIRM, 'Planification confirmée', {
-      taskId:id, bucket:selected, assignedTo, assignees, plannedStart, plannedEnd
+      taskId:id, bucket:t.planningBucket, assignedTo, assignees, plannedStart, plannedEnd
     });
     render();
   });
