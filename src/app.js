@@ -1337,7 +1337,7 @@ function renderProjectDetail(id) {
       <span>›</span><strong>${esc(p.name)}</strong>
     </div>`;
 
-  const quickAdd = !p.archived ? `
+  const quickAdd = !p.archived && !['paused','sleeping'].includes(p.status) ? `
     <div class="project-add-bar">
       <strong>+ Ajouter dans ce projet</strong>
       <div>
@@ -1467,7 +1467,15 @@ function renderProjectDetail(id) {
     ${pageHeader(
       p.name,
       hasChildren ? `${teamName(p.owner)} · projet principal / dossier` : teamName(p.owner),
-      `<div class="header-actions">${canManageProject(p) ? (p.archived ? `<button class="secondary-btn" data-restore-project="${p.id}">Restaurer</button>` : `<button class="secondary-btn" data-edit-project="${p.id}">Modifier</button><button class="archive-btn" data-archive-project="${p.id}">Archiver</button>`) : ''}</div>`
+      `<div class="header-actions">${canManageProject(p)
+        ? p.archived
+          ? `<button class="secondary-btn" data-restore-project="${p.id}">Restaurer</button>`
+          : `<button class="secondary-btn" data-edit-project="${p.id}">Modifier</button>
+             ${['paused','sleeping'].includes(p.status)
+               ? `<button class="secondary-btn" data-project-lifecycle="${p.id}" data-project-lifecycle-status="in_progress">Réactiver</button>`
+               : `<button class="secondary-btn" data-project-lifecycle="${p.id}" data-project-lifecycle-status="paused">Pause</button><button class="secondary-btn" data-project-lifecycle="${p.id}" data-project-lifecycle-status="sleeping">Sommeil</button>`}
+             <button class="archive-btn" data-archive-project="${p.id}">Archiver</button>`
+        : ''}</div>`
     )}
     ${p.archived ? '<div class="archive-banner"><strong>Projet archivé</strong><span>Il reste consultable, mais n’apparaît plus dans le pilotage actif.</span></div>' : ''}
 
@@ -4080,6 +4088,33 @@ function bindEvents() {
     currentPage = 'projects';
     render();
   }));
+  document.querySelectorAll('[data-planning-lifecycle]').forEach(el => el.addEventListener('click', () => {
+    planningLifecycleFilter = el.dataset.planningLifecycle || 'active';
+    selectedTaskIds.clear();
+    bulkTaskEditOpen = false;
+    render();
+  }));
+  document.querySelectorAll('[data-task-lifecycle]').forEach(el => el.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTaskLifecycleStatus(el.dataset.taskLifecycle, el.dataset.taskLifecycleStatus);
+  }));
+  document.querySelectorAll('[data-archive-task]').forEach(el => el.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    archiveTask(el.dataset.archiveTask);
+  }));
+  document.querySelectorAll('[data-restore-task]').forEach(el => el.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    restoreTask(el.dataset.restoreTask);
+  }));
+  document.querySelectorAll('[data-project-lifecycle]').forEach(el => el.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    setProjectLifecycleStatus(el.dataset.projectLifecycle, el.dataset.projectLifecycleStatus);
+  }));
+
   document.querySelectorAll('[data-complete]').forEach(el => el.addEventListener('click', () => completeTask(el.dataset.complete)));
   document.querySelectorAll('[data-task-status]').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); advanceTaskStatus(el.dataset.taskStatus); }));
   document.querySelectorAll('[data-team-planning]').forEach(el => el.addEventListener('click', () => openTeamPlanning(el.dataset.teamPlanning)));
