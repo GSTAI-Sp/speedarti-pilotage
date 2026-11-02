@@ -248,6 +248,16 @@ export function taskProgress(task) {
   return task?.status === 'completed' ? 100 : 0;
 }
 
+function taskIsArchived(task) {
+  return Boolean(task?.archivedAt || task?.archived);
+}
+
+function taskIsActivePlanning(task) {
+  return Boolean(task)
+    && !taskIsArchived(task)
+    && !['paused','sleeping'].includes(task.status);
+}
+
 function projectChildren(state, projectId) {
   return (state?.projects || []).filter(p => p.parentProjectId === projectId);
 }
@@ -273,7 +283,7 @@ function clampProgress(value) {
 export function automaticProjectProgress(state, project) {
   if (!project) return 0;
   const ids = new Set([project.id, ...descendantIds(state, project.id)]);
-  const tasks = (state?.tasks || []).filter(t => ids.has(t.projectId));
+  const tasks = (state?.tasks || []).filter(t => ids.has(t.projectId) && (!taskIsArchived(t) || t.status === 'completed'));
   if (!tasks.length) return project.status === 'completed' ? 100 : 0;
   const total = tasks.reduce((sum, task) => sum + taskProgress(task), 0);
   return clampProgress(total / tasks.length);
@@ -447,7 +457,7 @@ function projectInterval(state, projectId) {
 
   const ids = new Set([projectId, ...descendantIds(state, projectId)]);
   const intervals = (state?.tasks || [])
-    .filter(task => ids.has(task.projectId))
+    .filter(task => ids.has(task.projectId) && taskIsActivePlanning(task))
     .map(taskInterval)
     .filter(Boolean);
   if (!intervals.length) return null;
@@ -484,10 +494,11 @@ function projectRelevantToGanttScope(state, project) {
   if (!project) return false;
   if (projectInScope(state, project) && (ganttProfile === 'all' || project.owner === ganttProfile)) return true;
   const ids = new Set([project.id, ...descendantIds(state, project.id)]);
-  return (state?.tasks || []).some(task => ids.has(task.projectId) && taskMatchesProfileScope(state, task));
+  return (state?.tasks || []).some(task => ids.has(task.projectId) && taskIsActivePlanning(task) && taskMatchesProfileScope(state, task));
 }
 
 function taskMatchesGantt(state, task) {
+  if (!taskIsActivePlanning(task)) return false;
   if (!taskMatchesProfileScope(state, task)) return false;
   if (task.projectId) {
     const p = (state?.projects || []).find(item => item.id === task.projectId);
@@ -551,7 +562,7 @@ function renderProjectRows(state, project, range, depth = 0) {
   if (!projectAllowedByFilter(state, project)) return '';
 
   const tasks = (state?.tasks || []).filter(task => task.projectId === project.id && taskMatchesGantt(state, task));
-  const childProjects = projectChildren(state, project.id).filter(child => !child.archived);
+  const childProjects = projectChildren(state, project.id).filter(child => !child.archived && !['paused','sleeping'].includes(child.status));
   const children = childProjects
     .map(child => renderProjectRows(state, child, range, depth + 1))
     .filter(Boolean);
@@ -621,7 +632,7 @@ export function renderGantt(state, labels = {}) {
   const range = rangeForScale();
   const ticks = ganttTicks(range);
   const roots = (state?.projects || [])
-    .filter(project => !project.archived && !project.parentProjectId)
+    .filter(project => !project.archived && !project.parentProjectId && !['paused','sleeping'].includes(project.status))
     .sort((a,b) => Number(a.treeSortOrder || 0) - Number(b.treeSortOrder || 0));
   const rows = roots.map(project => renderProjectRows(state, project, range, 0)).filter(Boolean).join('');
 
@@ -661,6 +672,7 @@ export function renderGantt(state, labels = {}) {
   const unplannedTasks = (state?.tasks || []).filter(task => taskMatchesGantt(state, task) && !taskInterval(task));
   const unplannedProjects = (state?.projects || []).filter(project =>
     !project.archived
+    && !['paused','sleeping'].includes(project.status)
     && projectRelevantToGanttScope(state, project)
     && projectAllowedByFilter(state, project)
     && (ganttProfile === 'all' || project.owner === ganttProfile)
