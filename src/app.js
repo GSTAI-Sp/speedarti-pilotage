@@ -2803,6 +2803,8 @@ function completeTask(taskId) {
   const done = t.status === 'completed';
   t.status = done ? 'todo' : 'completed';
   t.completedAt = done ? null : new Date().toISOString();
+  if (done) { t.archivedAt = null; t.archived = false; }
+  normalizeTaskLifecycle(t);
   V21.recalculateAutomaticProgress(state);
   addActivity({ projectId: t.projectId, taskId:t.id, text: `${t.title} : ${done ? 'réouverte' : 'terminée'}`, internalTag: TAGS.TASK_COMPLETE });
   persist(TAGS.TASK_COMPLETE, 'Statut tâche modifié', { taskId, status: t.status });
@@ -2811,16 +2813,32 @@ function completeTask(taskId) {
 
 function moveTask(taskId, bucket) {
   const t = task(taskId);
-  if (!t) return;
+  if (!t || taskIsArchived(t) || ['paused','sleeping','completed'].includes(t.status)) return;
+
   const previous = t.planningBucket;
-  t.planningBucket = bucket;
-  const hasExactDates = Boolean(t.plannedStart || t.scheduledFor);
-  t.planningStatus = hasExactDates ? 'planned' : 'unplanned';
-  t.needsPlanning = !hasExactDates;
+  if (!taskPlanDateKey(t) && bucket !== 'backlog') {
+    planningTaskId = taskId;
+    notificationOpen = false;
+    trace(TAGS.PLAN_MODAL, 'Date requise pour déplacer une tâche hors À organiser', { taskId, requestedBucket:bucket });
+    render();
+    return;
+  }
+
+  syncTaskPlanningFromDates(t);
   t.sortOrder = Date.now();
-  addActivity({ projectId: t.projectId, text: `${t.title} : ${planningLabels[previous]} → ${planningLabels[bucket]}`, internalTag: TAGS.PLAN_MOVE });
-  persist(TAGS.PLAN_MOVE, 'Tâche déplacée dans la roadmap', { taskId, previous, bucket });
+  if (previous !== t.planningBucket) {
+    addActivity({
+      projectId:t.projectId,
+      taskId:t.id,
+      text:`${t.title} : ${planningLabels[previous] || 'À organiser'} → ${planningLabels[t.planningBucket]}`,
+      internalTag:TAGS.PLAN_MOVE
+    });
+  }
+  persist(TAGS.PLAN_MOVE, 'Classement Roadmap recalculé depuis la date', {
+    taskId, previous, requestedBucket:bucket, bucket:t.planningBucket, plannedStart:t.plannedStart, plannedEnd:t.plannedEnd
+  });
 }
+
 
 function resolveNotification(id) {
   const n = state.notifications.find(x => x.id === id);
@@ -3416,9 +3434,11 @@ function advanceTaskStatus(taskId) {
   if (!t) return;
   const previous = t.status;
   if (t.status === 'completed') t.status = 'todo';
-  else if (['todo','paused','blocked'].includes(t.status)) t.status = 'in_progress';
+  else if (['todo','paused','sleeping','blocked'].includes(t.status)) t.status = 'in_progress';
   else t.status = 'completed';
   t.completedAt = t.status === 'completed' ? new Date().toISOString() : null;
+  if (t.status !== 'completed') { t.archivedAt = null; t.archived = false; }
+  normalizeTaskLifecycle(t);
   V21.recalculateAutomaticProgress(state);
   addActivity({ projectId:t.projectId, taskId:t.id, text:`${t.title} : ${statusLabels[previous]} → ${statusLabels[t.status]}`, internalTag:TAGS.TASK_STATUS_QUICK });
   persist(TAGS.TASK_STATUS_QUICK, 'Statut tâche modifié rapidement', { taskId, previous, status:t.status });
@@ -3491,6 +3511,78 @@ function importDemoBackup() {
   input.click();
 }
 
+function setTaskLifecycleStatus(taskId, status) {
+  const t = task(taskId);
+  if (!t || !canEditTask(t) || !['paused','sleeping','in_progress'].includes(status)) return;
+  const previous = t.status;
+  t.archivedAt = null;
+  t.archived = false;
+  t.status = status;
+  t.completedAt = null;
+  normalizeTaskLifecycle(t);
+  addActivity({
+    projectId:t.projectId, taskId:t.id,
+    text:`${t.title} : ${statusLabels[previous] || previous} → ${statusLabels[status] || status}`,
+    internalTag:TAGS.TASK_EDIT
+  });
+  persist(TAGS.TASK_EDIT, 'Cycle de vie tâche modifié', { taskId:t.id, previous, status });
+  taskModalOpen = false;
+  taskEditId = null;
+  planningLifecycleFilter = status === 'paused' ? 'paused' : status === 'sleeping' ? 'sleeping' : 'active';
+  render();
+}
+
+function archiveTask(taskId) {
+  const t = task(taskId);
+  if (!t || !canEditTask(t)) return;
+  t.archivedAt = new Date().toISOString();
+  t.archived = true;
+  state.notifications.filter(n => !n.resolved && n.taskId === taskId).forEach(n => {
+    n.resolved = true;
+    n.resolvedAt = new Date().toISOString();
+  });
+  addActivity({ projectId:t.projectId, taskId:t.id, text:`Tâche archivée : ${t.title}`, internalTag:TAGS.TASK_EDIT });
+  persist(TAGS.TASK_EDIT, 'Tâche archivée', { taskId:t.id, archivedAt:t.archivedAt });
+  taskModalOpen = false;
+  taskEditId = null;
+  planningLifecycleFilter = 'archived';
+  currentPage = 'planning';
+  render();
+}
+
+function restoreTask(taskId) {
+  const t = task(taskId);
+  if (!t || !canEditTask(t)) return;
+  const previousStatus = t.status;
+  t.archivedAt = null;
+  t.archived = false;
+  if (t.status === 'completed') {
+    t.status = 'todo';
+    t.completedAt = null;
+  }
+  normalizeTaskLifecycle(t);
+  addActivity({ projectId:t.projectId, taskId:t.id, text:`Tâche restaurée : ${t.title}`, internalTag:TAGS.TASK_EDIT });
+  persist(TAGS.TASK_EDIT, 'Tâche restaurée', { taskId:t.id, previousStatus, status:t.status });
+  taskModalOpen = false;
+  taskEditId = null;
+  planningLifecycleFilter = taskLifecycleCategory(t);
+  currentPage = 'planning';
+  render();
+}
+
+function setProjectLifecycleStatus(projectId, status) {
+  const p = project(projectId);
+  if (!p || !canManageProject(p) || !['paused','sleeping','in_progress'].includes(status)) return;
+  const previous = p.status;
+  p.status = status;
+  p.updatedAt = new Date().toISOString();
+  addActivity({ projectId:p.id, text:`${p.name} : ${statusLabels[previous] || previous} → ${statusLabels[status] || status}`, internalTag:TAGS.PROJECT_EDIT });
+  persist(TAGS.PROJECT_EDIT, 'Cycle de vie projet modifié', { projectId:p.id, previous, status });
+  projectFilter = status === 'paused' ? 'paused' : status === 'sleeping' ? 'sleeping' : 'all';
+  selectedProjectId = null;
+  render();
+}
+
 function openArchiveModal(projectId) {
   archiveModalProjectId = projectId;
   trace(TAGS.ARCHIVE_MODAL, 'Ouverture confirmation archivage', { projectId });
@@ -3539,20 +3631,40 @@ function deferTask(choice) {
   if (!t) return;
   const previousDate = t.scheduledFor;
   const previousBucket = t.planningBucket;
-  if (choice === 'tomorrow') { t.scheduledFor=addDaysKey(1); t.planningBucket='this_week'; }
-  if (choice === 'next_week') { t.scheduledFor=nextWeekMondayKey(); t.planningBucket='this_week'; }
-  if (choice === 'this_month') { t.scheduledFor=null; t.planningBucket='this_month'; }
-  if (choice === 'backlog') { t.scheduledFor=null; t.planningBucket='backlog'; }
+
+  if (choice === 'tomorrow') {
+    t.scheduledFor = addDaysKey(1);
+  } else if (choice === 'next_week') {
+    t.scheduledFor = nextWeekMondayKey();
+  } else if (choice === 'this_month') {
+    const today = dateFromKey(currentDateKey());
+    const candidate = new Date(today);
+    candidate.setDate(candidate.getDate() + 7);
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12);
+    t.scheduledFor = dateKey(candidate <= monthEnd ? candidate : monthEnd);
+  } else {
+    t.scheduledFor = null;
+  }
+
   t.plannedStart = t.scheduledFor || null;
   t.plannedEnd = t.scheduledFor || null;
-  t.planningStatus = t.scheduledFor ? 'planned' : 'unplanned';
-  t.needsPlanning = !t.scheduledFor;
-  t.sortOrder=Date.now();
-  addActivity({ projectId:t.projectId, text:`${t.title} reportée vers ${choice === 'tomorrow' ? 'demain' : choice === 'next_week' ? 'la semaine prochaine' : choice === 'this_month' ? 'ce mois' : 'À organiser'}`, internalTag:TAGS.TASK_DEFER });
-  persist(TAGS.TASK_DEFER, 'Tâche reportée', { taskId:t.id, choice, previousDate, previousBucket, scheduledFor:t.scheduledFor, planningBucket:t.planningBucket });
-  deferTaskId=null;
+  t.dueAt = t.scheduledFor ? toDueIso(t.scheduledFor) : null;
+  syncTaskPlanningFromDates(t);
+  t.sortOrder = Date.now();
+
+  addActivity({
+    projectId:t.projectId, taskId:t.id,
+    text:`${t.title} reportée vers ${t.scheduledFor ? formatDate(t.scheduledFor) : 'À organiser'}`,
+    internalTag:TAGS.TASK_DEFER
+  });
+  persist(TAGS.TASK_DEFER, 'Tâche reportée', {
+    taskId:t.id, choice, previousDate, previousBucket,
+    scheduledFor:t.scheduledFor, planningBucket:t.planningBucket
+  });
+  deferTaskId = null;
   render();
 }
+
 function openTeamWorkload() { teamWorkloadOpen=true; trace(TAGS.TEAM_WORKLOAD, 'Vue charge équipe ouverte'); render(); }
 function closeTeamWorkload() { teamWorkloadOpen=false; render(); }
 
