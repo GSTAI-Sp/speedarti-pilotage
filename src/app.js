@@ -30,6 +30,7 @@ let projectFilter = 'all';
 let planningFilterProject = 'all';
 let planningFilterOwner = 'all';
 let planningFilterPriority = 'all';
+let planningLifecycleFilter = 'active';
 let activityFilter = 'all';
 let notificationFilter = 'all';
 let aiSimulationOpen = false;
@@ -98,7 +99,7 @@ const navItems = [
 
 const statusLabels = {
   todo: 'À faire', in_progress: 'En cours', to_validate: 'À valider', to_test: 'À tester',
-  completed: 'Terminé', blocked: 'Bloqué', paused: 'En pause'
+  completed: 'Terminé', blocked: 'Bloqué', paused: 'En pause', sleeping: 'En sommeil'
 };
 const priorityLabels = { urgent: 'Urgente', high: 'Haute', medium: 'Moyenne', low: 'Faible' };
 const planningLabels = {
@@ -303,6 +304,89 @@ function taskAssigneeLabel(t) {
   return ids.map(teamName).filter(Boolean).join(' · ') || 'Non attribué';
 }
 
+function taskEndDateKey(t) {
+  return t?.plannedEnd || t?.plannedStart || t?.scheduledFor || dateKey(t?.dueAt) || null;
+}
+
+function taskPlanDateKey(t) {
+  return t?.plannedStart || t?.scheduledFor || t?.plannedEnd || dateKey(t?.dueAt) || null;
+}
+
+function planningBucketForDate(value) {
+  if (!value) return 'backlog';
+  const target = dateFromKey(value);
+  const today = dateFromKey(currentDateKey());
+  const mondayOffset = (today.getDay() + 6) % 7;
+  const weekEnd = new Date(today);
+  weekEnd.setDate(today.getDate() + (6 - mondayOffset));
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12);
+  const threeMonths = new Date(today);
+  threeMonths.setMonth(threeMonths.getMonth() + 3);
+
+  if (target <= weekEnd) return 'this_week';
+  if (target <= monthEnd) return 'this_month';
+  if (target <= threeMonths) return 'next_3_months';
+  return 'later';
+}
+
+function syncTaskPlanningFromDates(t) {
+  if (!t) return;
+  const planDate = taskPlanDateKey(t);
+  if (!planDate) {
+    t.planningBucket = 'backlog';
+    t.planningStatus = 'unplanned';
+    t.needsPlanning = true;
+    return;
+  }
+  t.planningBucket = planningBucketForDate(planDate);
+  t.planningStatus = 'planned';
+  t.needsPlanning = false;
+}
+
+function taskIsArchived(t) {
+  if (!t) return false;
+  if (t.archivedAt || t.archived) return true;
+  const endDate = taskEndDateKey(t);
+  return t.status === 'completed' && Boolean(endDate && endDate < currentDateKey());
+}
+
+function taskLifecycleCategory(t) {
+  if (taskIsArchived(t)) return 'archived';
+  if (t?.status === 'paused') return 'paused';
+  if (t?.status === 'sleeping') return 'sleeping';
+  return 'active';
+}
+
+function taskIsActiveWork(t) {
+  return taskLifecycleCategory(t) === 'active' && t?.status !== 'completed';
+}
+
+function normalizeTaskLifecycle(t) {
+  if (!t) return false;
+  let changed = false;
+  const beforeBucket = t.planningBucket;
+  const beforeStatus = t.planningStatus;
+  const beforeNeeds = Boolean(t.needsPlanning);
+  syncTaskPlanningFromDates(t);
+  if (beforeBucket !== t.planningBucket || beforeStatus !== t.planningStatus || beforeNeeds !== Boolean(t.needsPlanning)) changed = true;
+
+  if (!t.archivedAt && t.status === 'completed') {
+    const endDate = taskEndDateKey(t);
+    if (endDate && endDate < currentDateKey()) {
+      t.archivedAt = new Date().toISOString();
+      t.archived = true;
+      changed = true;
+    }
+  }
+
+  const archived = Boolean(t.archivedAt);
+  if (Boolean(t.archived) !== archived) {
+    t.archived = archived;
+    changed = true;
+  }
+  return changed;
+}
+
 function canEditTask(t) {
   if (!t) return false;
   if (isAdmin()) return true;
@@ -397,11 +481,14 @@ function ensureRuntimeState() {
   state.dailyReports.forEach(report => {
     if (report.source === 'ai' && !report.sourceAgent) report.sourceAgent = aiAgentsForPerson(report.personId)[0]?.id || null;
   });
+  let lifecycleChanged = false;
   state.tasks.forEach(t => {
     const assignees = taskAssigneeIds(t);
     if (!t.assignedTo && assignees.length) t.assignedTo = assignees[0];
     t.assignees = [...new Set([t.assignedTo, ...assignees].filter(Boolean))];
+    if (normalizeTaskLifecycle(t)) lifecycleChanged = true;
   });
+  if (lifecycleChanged) saveState(state);
   selectedTaskIds = new Set([...selectedTaskIds].filter(id => state.tasks.some(t => t.id === id)));
 
   state.projects.forEach((p, index) => {
@@ -607,7 +694,8 @@ function priorityBadge(priority) { return `<span class="badge priority-${priorit
 function taskQuickLabel(t) {
   if (!t) return '';
   if (t.status === 'completed') return 'Réouvrir';
-  if (t.status === 'todo' || t.status === 'paused' || t.status === 'blocked') return 'Démarrer';
+  if (t.status === 'paused' || t.status === 'sleeping') return 'Réactiver';
+  if (t.status === 'todo' || t.status === 'blocked') return 'Démarrer';
   return 'Terminer';
 }
 
